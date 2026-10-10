@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Lint & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Syntax check all modules
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm test
+
+  browser:
+    name: Browser smoke test (optional)
+    runs-on: ubuntu-latest
+    # The scene needs a GPU for a realistic frame rate. On GitHub's
+    # software-rendered runners the first frame can take minutes, so this job
+    # is informational and must not block a merge.
+    # 场景需要 GPU 才能达到正常帧率；GitHub runner 为软件渲染，
+    # 首帧可能耗时数分钟，故此 job 仅作参考，不阻塞合并。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+      - run: npm i -D playwright && npx playwright install --with-deps chromium
+      - run: npm run test:browser

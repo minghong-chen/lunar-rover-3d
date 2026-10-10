@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Generated offline bundle (run `npm run vendor` to regenerate)
+# 离线产物（运行 `npm run vendor` 重新生成）
+vendor/
+index.offline.html
+
+# Build / test output
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+*.log
+npm-debug.log*
+
+# Screenshots produced by the browser smoke test
+tests/__screenshots__/
+*.local.png
+
+# Environment & secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
