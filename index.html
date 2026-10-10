@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>月面探测车 · 实时 3D 月球漫游场景</title>
+<meta name="description" content="一个单文件 Three.js 交互式 3D 场景：程序化生成的高细节月面探测车在写实月球表面缓慢行驶。探测车含六个金属丝网车轮、rocker-bogie 摇臂悬挂、太阳能板阵列、高增益碟形天线与鞭状天线、立体相机桅杆和多关节取样机械臂；月面由多层噪声生成丘陵、带抬升坑沿的陨石坑与散落岩石，背景为星空与悬挂的地球。支持鼠标左键旋转、滚轮缩放、右键平移，可切换跟随／自由视角，并调节行驶速度、太阳角度与星空亮度。">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:#dfe6ef}
+  #scene{position:fixed;inset:0;display:block}
+
+  /* ---------- 加载提示 ---------- */
+  #loader{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:#000;
+    transition:opacity 1s ease}
+  #loader.hide{opacity:0;pointer-events:none}
+  #loader .ring{width:52px;height:52px;border:2px solid rgba(255,255,255,.14);
+    border-top-color:#9fd0ff;border-radius:50%;animation:spin 1.1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loader .t{font-size:15px;letter-spacing:.22em;color:#8fa6bd}
+  #loader .s{font-size:12px;letter-spacing:.1em;color:#4e5e70}
+
+  /* ---------- 控制面板 ---------- */
+  #panel{position:fixed;top:16px;right:16px;z-index:20;width:252px;padding:14px 15px 13px;
+    border-radius:13px;background:rgba(10,14,20,.62);
+    border:1px solid rgba(150,185,220,.22);
+    box-shadow:0 10px 34px rgba(0,0,0,.55);
+    backdrop-filter:blur(13px);-webkit-backdrop-filter:blur(13px);
+    font-size:12px;user-select:none}
+  #panel h1{font-size:13px;font-weight:600;letter-spacing:.1em;color:#eaf2fb;
+    display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  #panel h1 i{width:6px;height:6px;border-radius:50%;background:#7fe0a8;
+    box-shadow:0 0 8px #7fe0a8;font-style:normal}
+  #panel .sub{font-size:10px;color:#6c8097;letter-spacing:.14em;margin-bottom:11px}
+  .row{display:flex;gap:7px;margin-bottom:9px}
+  .btn{flex:1;padding:7px 0;text-align:center;cursor:pointer;border-radius:8px;
+    font-size:11.5px;letter-spacing:.06em;color:#c3d4e6;
+    background:rgba(255,255,255,.055);border:1px solid rgba(160,195,230,.2);
+    transition:background .18s,color .18s,border-color .18s}
+  .btn:hover{background:rgba(145,195,255,.17);color:#fff}
+  .btn.on{background:rgba(110,180,255,.25);border-color:rgba(150,205,255,.6);color:#fff}
+  .sl{margin-bottom:10px}
+  .sl label{display:flex;justify-content:space-between;font-size:11px;
+    color:#93a7bb;margin-bottom:5px;letter-spacing:.05em}
+  .sl label b{color:#a8d4ff;font-weight:500;font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;
+    border-radius:3px;background:rgba(255,255,255,.17);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+    border-radius:50%;background:#bcdcff;border:none;box-shadow:0 0 7px rgba(150,205,255,.8)}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;
+    background:#bcdcff;box-shadow:0 0 7px rgba(150,205,255,.8)}
+  #hint{margin-top:11px;padding-top:10px;border-top:1px solid rgba(150,185,220,.17);
+    font-size:10.5px;line-height:1.75;color:#64778b;letter-spacing:.03em}
+  #hud{position:fixed;left:16px;bottom:14px;z-index:20;font-size:10.5px;line-height:1.7;
+    color:#5d7085;letter-spacing:.08em;text-shadow:0 1px 3px #000}
+  #hud b{color:#9ec4e8;font-weight:500;font-variant-numeric:tabular-nums}
+  @media (max-width:560px){#panel{width:200px;top:10px;right:10px;transform:scale(.93);
+    transform-origin:top right}}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="loader">
+  <div class="ring"></div>
+  <div class="t">正在生成月面地形与探测车</div>
+  <div class="s">PROCEDURAL LUNAR SCENE · THREE.JS</div>
+</div>
+
+<div id="panel">
+  <h1><i></i>月面探测车控制台</h1>
+  <div class="sub">LUNAR ROVER · 控制面板</div>
+
+  <div class="row">
+    <div class="btn on" id="bFollow">跟随视角</div>
+    <div class="btn" id="bFree">自由视角</div>
+  </div>
+  <div class="row">
+    <div class="btn on" id="bDrive">⏸ 暂停行驶</div>
+  </div>
+
+  <div class="sl">
+    <label>行驶速度 <b id="vSpeed">1.0×</b></label>
+    <input type="range" id="rSpeed" min="0" max="3" step="0.05" value="1">
+  </div>
+  <div class="sl">
+    <label>太阳角度 <b id="vSun">18°</b></label>
+    <input type="range" id="rSun" min="2" max="70" step="1" value="18">
+  </div>
+  <div class="sl">
+    <label>星空亮度 <b id="vStar">100%</b></label>
+    <input type="range" id="rStar" min="0" max="200" step="5" value="100">
+  </div>
+
+  <div id="hint">
+    鼠标左键拖拽 · 旋转视角<br>
+    滚轮 · 缩放远近 &nbsp;|&nbsp; 右键拖拽 · 平移
+  </div>
+</div>
+
+<div id="hud">
+  行驶距离 <b id="hDist">0.0</b> m &nbsp;·&nbsp; 速度 <b id="hVel">0.00</b> m/s<br>
+  视角模式 <b id="hMode">跟随</b> &nbsp;·&nbsp; 帧率 <b id="hFps">--</b> FPS
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<!-- Modular entry point. For the zero-dependency single-file build,
+     open dist/lunar-rover-standalone.html instead.
+     模块化入口；若需单文件免构建版本，请打开 dist/lunar-rover-standalone.html -->
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "lunar-rover-3d",
+  "version": "1.0.0",
+  "description": "Interactive procedural 3D lunar rover scene built with Three.js — no binary assets, every texture and mesh is generated at runtime.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "threejs",
+    "webgl",
+    "3d",
+    "procedural",
+    "lunar",
+    "rover",
+    "space",
+    "simulation"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "dev": "node scripts/serve.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test \"tests/*.test.mjs\"",
+    "test:unit": "node --test \"tests/*.test.mjs\"",
+    "test:browser": "node tests/browser-smoke.mjs",
+    "lint": "node --experimental-vm-modules scripts/check-syntax.mjs",
+    "vendor": "node scripts/vendor-three.mjs"
+  },
+  "devDependencies": {
+    "three": "0.160.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/minghong-chen/lunar-rover-3d.git"
+  }
+}

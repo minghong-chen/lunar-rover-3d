@@ -1,0 +1,31 @@
+{
+  "$comment": "Example scene tuning file. Copy to scene.config.json and adjust. No secrets belong in this file. / 示例场景参数文件，复制为 scene.config.json 后修改；此文件不应包含任何密钥。",
+
+  "world": {
+    "seed": 20261010,
+    "terrainSize": 1100,
+    "terrainSegments": 320,
+    "pathRadius": 46
+  },
+
+  "rover": {
+    "baseSpeedMetersPerSecond": 0.42,
+    "wheelRadius": 0.325,
+    "wheelBase": 1.72,
+    "trackWidth": 1.60
+  },
+
+  "rendering": {
+    "maxPixelRatio": 2,
+    "shadowMapSize": 2048,
+    "toneMappingExposure": 1.04,
+    "antialias": true
+  },
+
+  "scene": {
+    "sunAngleDegrees": 18,
+    "starBrightness": 1.0,
+    "starCount": 4200,
+    "followCamera": true
+  }
+}

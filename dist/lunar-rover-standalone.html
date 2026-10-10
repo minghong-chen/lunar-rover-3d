@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>月面探测车 · 实时 3D 月球漫游场景</title>
+<meta name="description" content="一个单文件 Three.js 交互式 3D 场景：程序化生成的高细节月面探测车在写实月球表面缓慢行驶。探测车含六个金属丝网车轮、rocker-bogie 摇臂悬挂、太阳能板阵列、高增益碟形天线与鞭状天线、立体相机桅杆和多关节取样机械臂；月面由多层噪声生成丘陵、带抬升坑沿的陨石坑与散落岩石，背景为星空与悬挂的地球。支持鼠标左键旋转、滚轮缩放、右键平移，可切换跟随／自由视角，并调节行驶速度、太阳角度与星空亮度。">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:#dfe6ef}
+  #scene{position:fixed;inset:0;display:block}
+
+  /* ---------- 加载提示 ---------- */
+  #loader{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:#000;
+    transition:opacity 1s ease}
+  #loader.hide{opacity:0;pointer-events:none}
+  #loader .ring{width:52px;height:52px;border:2px solid rgba(255,255,255,.14);
+    border-top-color:#9fd0ff;border-radius:50%;animation:spin 1.1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loader .t{font-size:15px;letter-spacing:.22em;color:#8fa6bd}
+  #loader .s{font-size:12px;letter-spacing:.1em;color:#4e5e70}
+
+  /* ---------- 控制面板 ---------- */
+  #panel{position:fixed;top:16px;right:16px;z-index:20;width:252px;padding:14px 15px 13px;
+    border-radius:13px;background:rgba(10,14,20,.62);
+    border:1px solid rgba(150,185,220,.22);
+    box-shadow:0 10px 34px rgba(0,0,0,.55);
+    backdrop-filter:blur(13px);-webkit-backdrop-filter:blur(13px);
+    font-size:12px;user-select:none}
+  #panel h1{font-size:13px;font-weight:600;letter-spacing:.1em;color:#eaf2fb;
+    display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  #panel h1 i{width:6px;height:6px;border-radius:50%;background:#7fe0a8;
+    box-shadow:0 0 8px #7fe0a8;font-style:normal}
+  #panel .sub{font-size:10px;color:#6c8097;letter-spacing:.14em;margin-bottom:11px}
+  .row{display:flex;gap:7px;margin-bottom:9px}
+  .btn{flex:1;padding:7px 0;text-align:center;cursor:pointer;border-radius:8px;
+    font-size:11.5px;letter-spacing:.06em;color:#c3d4e6;
+    background:rgba(255,255,255,.055);border:1px solid rgba(160,195,230,.2);
+    transition:background .18s,color .18s,border-color .18s}
+  .btn:hover{background:rgba(145,195,255,.17);color:#fff}
+  .btn.on{background:rgba(110,180,255,.25);border-color:rgba(150,205,255,.6);color:#fff}
+  .sl{margin-bottom:10px}
+  .sl label{display:flex;justify-content:space-between;font-size:11px;
+    color:#93a7bb;margin-bottom:5px;letter-spacing:.05em}
+  .sl label b{color:#a8d4ff;font-weight:500;font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;
+    border-radius:3px;background:rgba(255,255,255,.17);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+    border-radius:50%;background:#bcdcff;border:none;box-shadow:0 0 7px rgba(150,205,255,.8)}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;
+    background:#bcdcff;box-shadow:0 0 7px rgba(150,205,255,.8)}
+  #hint{margin-top:11px;padding-top:10px;border-top:1px solid rgba(150,185,220,.17);
+    font-size:10.5px;line-height:1.75;color:#64778b;letter-spacing:.03em}
+  #hud{position:fixed;left:16px;bottom:14px;z-index:20;font-size:10.5px;line-height:1.7;
+    color:#5d7085;letter-spacing:.08em;text-shadow:0 1px 3px #000}
+  #hud b{color:#9ec4e8;font-weight:500;font-variant-numeric:tabular-nums}
+  @media (max-width:560px){#panel{width:200px;top:10px;right:10px;transform:scale(.93);
+    transform-origin:top right}}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="loader">
+  <div class="ring"></div>
+  <div class="t">正在生成月面地形与探测车</div>
+  <div class="s">PROCEDURAL LUNAR SCENE · THREE.JS</div>
+</div>
+
+<div id="panel">
+  <h1><i></i>月面探测车控制台</h1>
+  <div class="sub">LUNAR ROVER · 控制面板</div>
+
+  <div class="row">
+    <div class="btn on" id="bFollow">跟随视角</div>
+    <div class="btn" id="bFree">自由视角</div>
+  </div>
+  <div class="row">
+    <div class="btn on" id="bDrive">⏸ 暂停行驶</div>
+  </div>
+
+  <div class="sl">
+    <label>行驶速度 <b id="vSpeed">1.0×</b></label>
+    <input type="range" id="rSpeed" min="0" max="3" step="0.05" value="1">
+  </div>
+  <div class="sl">
+    <label>太阳角度 <b id="vSun">18°</b></label>
+    <input type="range" id="rSun" min="2" max="70" step="1" value="18">
+  </div>
+  <div class="sl">
+    <label>星空亮度 <b id="vStar">100%</b></label>
+    <input type="range" id="rStar" min="0" max="200" step="5" value="100">
+  </div>
+
+  <div id="hint">
+    鼠标左键拖拽 · 旋转视角<br>
+    滚轮 · 缩放远近 &nbsp;|&nbsp; 右键拖拽 · 平移
+  </div>
+</div>
+
+<div id="hud">
+  行驶距离 <b id="hDist">0.0</b> m &nbsp;·&nbsp; 速度 <b id="hVel">0.00</b> m/s<br>
+  视角模式 <b id="hMode">跟随</b> &nbsp;·&nbsp; 帧率 <b id="hFps">--</b> FPS
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+/**
+ * RUNTIME ASSUMPTION — WebGL hardware / 运行环境假设 —— WebGL 硬件
+ *
+ * This scene assumes a GPU-backed WebGL context (hardware acceleration on).
+ * It renders ~6 shadow-casting instanced groups, a 320x320 displaced terrain,
+ * 4,200 instanced stars and several 512-1024px procedural canvas textures.
+ *
+ * On a mid-range laptop GPU this is a 60 fps workload. Under a SOFTWARE
+ * rasteriser (headless CI, `--disable-gpu`, remote desktop, or a VM with no
+ * passthrough) the same frame costs seconds rather than milliseconds, and the
+ * first frame alone — shader compile plus texture upload — can take minutes.
+ * That is an environment limitation, not a defect in this code.
+ *
+ * If the scene loads but crawls, verify chrome://gpu reports hardware
+ * acceleration for WebGL before tuning any scene parameter.
+ *
+ * 本场景假设使用由 GPU 支持的 WebGL 上下文（已启用硬件加速）。
+ * 在中端笔记本独显/集显上为 60fps 量级负载；若运行在软件光栅化环境
+ * （无头 CI、--disable-gpu、远程桌面、无显卡直通的虚拟机），
+ * 单帧耗时会从毫秒级退化到秒级，仅首帧的着色器编译与贴图上传就可能耗时数分钟。
+ * 这属于环境限制而非代码缺陷。如画面能加载但极慢，
+ * 请先在 chrome://gpu 确认 WebGL 为硬件加速，再考虑调整场景参数。
+ */
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as BGU from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* =========================================================
+   0. 噪声工具 —— 程序化 value-noise + fBm
+   ========================================================= */
+function makeRng(seed){ let s = seed >>> 0;
+  return function(){ s ^= s<<13; s>>>=0; s ^= s>>17; s ^= s<<5; s>>>=0; return s/4294967296; };
+}
+const RND = makeRng(20261010);
+
+const PERM = new Uint8Array(512);
+(function(){ const p=[]; for(let i=0;i<256;i++) p[i]=i;
+  for(let i=255;i>0;i--){ const j=(RND()*(i+1))|0; const t=p[i]; p[i]=p[j]; p[j]=t; }
+  for(let i=0;i<512;i++) PERM[i]=p[i&255];
+})();
+const fade = t => t*t*t*(t*(t*6-15)+10);
+function grad2(hash,x,y){
+  switch(hash&7){
+    case 0: return  x+y; case 1: return  x-y; case 2: return -x+y; case 3: return -x-y;
+    case 4: return  x;   case 5: return -x;   case 6: return  y;   default: return -y;
+  }
+}
+function noise2(x,y){
+  const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+  const xf=x-Math.floor(x), yf=y-Math.floor(y);
+  const u=fade(xf), v=fade(yf);
+  const aa=PERM[PERM[X]+Y], ab=PERM[PERM[X]+Y+1];
+  const ba=PERM[PERM[X+1]+Y], bb=PERM[PERM[X+1]+Y+1];
+  const x1=THREE.MathUtils.lerp(grad2(aa,xf,yf),   grad2(ba,xf-1,yf),   u);
+  const x2=THREE.MathUtils.lerp(grad2(ab,xf,yf-1), grad2(bb,xf-1,yf-1), u);
+  return THREE.MathUtils.lerp(x1,x2,v); // ~[-1,1]
+}
+function fbm(x,y,oct=5,lac=2.03,gain=0.5){
+  let a=1,f=1,sum=0,norm=0;
+  for(let i=0;i<oct;i++){ sum+=a*noise2(x*f,y*f); norm+=a; a*=gain; f*=lac; }
+  return sum/norm;
+}
+function ridged(x,y,oct=4){
+  let a=1,f=1,sum=0,norm=0;
+  for(let i=0;i<oct;i++){ sum+=a*(1-Math.abs(noise2(x*f,y*f))); norm+=a; a*=0.5; f*=2.07; }
+  return sum/norm;
+}
+
+/* =========================================================
+   1. 渲染器 / 场景 / 相机
+   ========================================================= */
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000002);
+
+const camera = new THREE.PerspectiveCamera(48, innerWidth/innerHeight, 0.05, 20000);
+camera.position.set(3.5, 2.0, 3.7);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.rotateSpeed = 0.62;
+controls.zoomSpeed = 0.9;
+controls.panSpeed = 0.7;
+controls.minDistance = 1.6;      // 贴近看细节
+controls.maxDistance = 420;      // 拉远看整片月面
+controls.maxPolarAngle = Math.PI*0.497;   // 不穿到地下
+controls.target.set(0, 0.9, 0);
+
+/* =========================================================
+   2. 程序化贴图 (canvas)
+   ========================================================= */
+function cvs(size){ const c=document.createElement('canvas'); c.width=c.height=size; return c; }
+
+/* --- 月壤漫反射贴图：灰白底 + 噪点 + 微陨石麻点 --- */
+function regolithMap(size=1024){
+  const c=cvs(size), g=c.getContext('2d');
+  g.fillStyle='#8d8b86'; g.fillRect(0,0,size,size);
+  const img=g.getImageData(0,0,size,size), d=img.data;
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+    const i=(y*size+x)*4;
+    const n = fbm(x/58, y/58, 5)*0.5 + fbm(x/13, y/13, 3)*0.3 + (RND()-0.5)*0.26;
+    const v = THREE.MathUtils.clamp(0.60 + n*0.30, 0.18, 1);
+    d[i]  =255*v*0.995; d[i+1]=255*v*0.995; d[i+2]=255*v*0.985; d[i+3]=255;
+  }
+  g.putImageData(img,0,0);
+  // 微小暗坑麻点
+  for(let i=0;i<2600;i++){
+    const x=RND()*size, y=RND()*size, r=RND()*RND()*7+0.6;
+    const a=0.05+RND()*0.17;
+    const grd=g.createRadialGradient(x,y,0,x,y,r);
+    grd.addColorStop(0,`rgba(28,26,24,${a})`);
+    grd.addColorStop(0.72,`rgba(60,58,54,${a*0.4})`);
+    grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  // 浅色溅射亮斑
+  for(let i=0;i<420;i++){
+    const x=RND()*size, y=RND()*size, r=RND()*10+2;
+    const grd=g.createRadialGradient(x,y,0,x,y,r);
+    grd.addColorStop(0,`rgba(255,253,246,${0.05+RND()*0.1})`);
+    grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+/* --- 由高度场生成法线贴图 --- */
+function normalFromHeight(hf, size, strength=2.6){
+  const c=cvs(size), g=c.getContext('2d');
+  const img=g.createImageData(size,size), d=img.data;
+  const at=(x,y)=>hf[((y+size)%size)*size + ((x+size)%size)];
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+    const dx=(at(x+1,y)-at(x-1,y))*strength;
+    const dy=(at(x,y+1)-at(x,y-1))*strength;
+    let nx=-dx, ny=-dy, nz=1;
+    const l=Math.hypot(nx,ny,nz); nx/=l; ny/=l; nz/=l;
+    const i=(y*size+x)*4;
+    d[i]=(nx*0.5+0.5)*255; d[i+1]=(ny*0.5+0.5)*255; d[i+2]=(nz*0.5+0.5)*255; d[i+3]=255;
+  }
+  g.putImageData(img,0,0);
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  return t;
+}
+function regolithNormal(size=512){
+  const hf=new Float32Array(size*size);
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++)
+    hf[y*size+x]= fbm(x/19,y/19,5)*0.6 + fbm(x/5,y/5,3)*0.4 + (RND()-0.5)*0.25;
+  return normalFromHeight(hf,size,3.1);
+}
+
+/* --- 太阳能电池板贴图：蓝紫电池片 + 分格栅线 + 汇流条 --- */
+function solarPanelMap(w=512,h=512,cols=8,rows=12){
+  const c=cvs(w); c.height=h; const g=c.getContext('2d');
+  g.fillStyle='#0a1430'; g.fillRect(0,0,w,h);
+  const cw=w/cols, ch=h/rows;
+  for(let i=0;i<cols;i++) for(let j=0;j<rows;j++){
+    const x=i*cw, y=j*ch;
+    const tint=0.82+RND()*0.18;
+    const grd=g.createLinearGradient(x,y,x+cw,y+ch);
+    grd.addColorStop(0,  `rgb(${18*tint|0},${40*tint|0},${96*tint|0})`);
+    grd.addColorStop(0.5,`rgb(${30*tint|0},${62*tint|0},${140*tint|0})`);
+    grd.addColorStop(1,  `rgb(${12*tint|0},${28*tint|0},${74*tint|0})`);
+    g.fillStyle=grd; g.fillRect(x+1.6,y+1.6,cw-3.2,ch-3.2);
+    // 汇流细银线
+    g.strokeStyle='rgba(205,220,240,.5)'; g.lineWidth=1;
+    for(let k=1;k<4;k++){ g.beginPath();
+      g.moveTo(x+cw*k/4, y+2.4); g.lineTo(x+cw*k/4, y+ch-2.4); g.stroke(); }
+    g.strokeStyle='rgba(225,235,250,.62)'; g.lineWidth=1.8;
+    g.beginPath(); g.moveTo(x+2.4,y+ch*0.5); g.lineTo(x+cw-2.4,y+ch*0.5); g.stroke();
+    // 边缘高光
+    g.strokeStyle='rgba(150,185,235,.3)'; g.lineWidth=1;
+    g.strokeRect(x+1.6,y+1.6,cw-3.2,ch-3.2);
+  }
+  // 面板骨架格栅
+  g.strokeStyle='rgba(188,196,206,.85)'; g.lineWidth=3.2;
+  for(let i=0;i<=cols;i++){ g.beginPath(); g.moveTo(i*cw,0); g.lineTo(i*cw,h); g.stroke(); }
+  for(let j=0;j<=rows;j++){ g.beginPath(); g.moveTo(0,j*ch); g.lineTo(w,j*ch); g.stroke(); }
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
+/* --- 车体哑光白漆面板：分缝线 + 铆钉 + 轻微污渍 --- */
+function hullPaintMap(size=1024){
+  const c=cvs(size), g=c.getContext('2d');
+  g.fillStyle='#e8e6e1'; g.fillRect(0,0,size,size);
+  // 噪声污渍
+  for(let i=0;i<1500;i++){
+    const x=RND()*size,y=RND()*size,r=RND()*26+4;
+    const grd=g.createRadialGradient(x,y,0,x,y,r);
+    grd.addColorStop(0,`rgba(150,148,142,${0.02+RND()*0.05})`);
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  // 面板分缝
+  const step=size/8;
+  g.strokeStyle='rgba(92,90,88,.72)'; g.lineWidth=2.4;
+  for(let i=1;i<8;i++){
+    g.beginPath(); g.moveTo(i*step,0); g.lineTo(i*step,size); g.stroke();
+    g.beginPath(); g.moveTo(0,i*step); g.lineTo(size,i*step); g.stroke();
+  }
+  g.strokeStyle='rgba(255,255,255,.5)'; g.lineWidth=1;
+  for(let i=1;i<8;i++){
+    g.beginPath(); g.moveTo(i*step+2.2,0); g.lineTo(i*step+2.2,size); g.stroke();
+    g.beginPath(); g.moveTo(0,i*step+2.2); g.lineTo(size,i*step+2.2); g.stroke();
+  }
+  // 铆钉：沿缝线排布
+  function rivet(x,y,r){
+    const grd=g.createRadialGradient(x-r*0.3,y-r*0.3,0,x,y,r);
+    grd.addColorStop(0,'rgba(255,255,255,.95)');
+    grd.addColorStop(0.55,'rgba(168,166,160,.9)');
+    grd.addColorStop(1,'rgba(74,72,70,.85)');
+    g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  for(let i=0;i<=8;i++) for(let t=0;t<=size;t+=step/4){
+    rivet(i*step, t, 3.2); rivet(t, i*step, 3.2);
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+function hullNormal(size=512){
+  const hf=new Float32Array(size*size);
+  const step=size/8;
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+    let h = fbm(x/40,y/40,3)*0.12;
+    const dx=Math.min(Math.abs(x%step), step-Math.abs(x%step));
+    const dy=Math.min(Math.abs(y%step), step-Math.abs(y%step));
+    if(dx<2.4||dy<2.4) h-=0.85;                      // 凹缝
+    // 铆钉凸起
+    const rx=Math.round(x/(step/4))*(step/4), ry=Math.round(y/(step/4))*(step/4);
+    const onSeamX = Math.abs(rx%step)<1 , onSeamY = Math.abs(ry%step)<1;
+    if(onSeamX||onSeamY){
+      const d=Math.hypot(x-rx,y-ry);
+      if(d<3.4) h+=0.9*Math.cos(d/3.4*1.57);
+    }
+    hf[y*size+x]=h;
+  }
+  return normalFromHeight(hf,size,2.0);
+}
+
+/* --- 隔热金箔皱褶法线 --- */
+function foilNormal(size=512){
+  const hf=new Float32Array(size*size);
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++)
+    hf[y*size+x]= ridged(x/26,y/26,4)*0.9 + fbm(x/9,y/9,3)*0.35;
+  return normalFromHeight(hf,size,3.4);
+}
+
+/* --- 碳纤维编织贴图 --- */
+function carbonMap(size=256){
+  const c=cvs(size), g=c.getContext('2d');
+  g.fillStyle='#14161a'; g.fillRect(0,0,size,size);
+  const cell=size/16;
+  for(let i=0;i<16;i++) for(let j=0;j<16;j++){
+    const dark=((i+j)&1)===0;
+    const grd=g.createLinearGradient(i*cell,j*cell,(i+1)*cell,(j+1)*cell);
+    if(dark){ grd.addColorStop(0,'#2b2f36'); grd.addColorStop(1,'#101216'); }
+    else    { grd.addColorStop(0,'#0e1014'); grd.addColorStop(1,'#272b32'); }
+    g.fillStyle=grd; g.fillRect(i*cell,j*cell,cell,cell);
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.colorSpace=THREE.SRGBColorSpace;
+  return t;
+}
+
+/* --- 地球贴图：蓝白大陆云带 --- */
+function earthMap(size=512){
+  const c=cvs(size*2); c.height=size; const g=c.getContext('2d');
+  const w=size*2,h=size;
+  const oc=g.createLinearGradient(0,0,0,h);
+  oc.addColorStop(0,'#cfe6f5'); oc.addColorStop(0.17,'#12418f');
+  oc.addColorStop(0.5,'#0a3f9c'); oc.addColorStop(0.84,'#0e3d86'); oc.addColorStop(1,'#dbeaf6');
+  g.fillStyle=oc; g.fillRect(0,0,w,h);
+  // 大陆
+  for(let y=0;y<h;y+=2) for(let x=0;x<w;x+=2){
+    const n=fbm(x/92,y/92,5)+0.34*fbm(x/26,y/26,3);
+    if(n>0.13){
+      const g2=THREE.MathUtils.clamp(0.42+n*0.5,0,1);
+      g.fillStyle=`rgb(${(74+n*70)|0},${(96+g2*72)|0},${(56+n*34)|0})`;
+      g.fillRect(x,y,2.4,2.4);
+    }
+  }
+  // 云带
+  for(let y=0;y<h;y+=2) for(let x=0;x<w;x+=2){
+    const n=fbm(x/50+120,y/22+60,4);
+    if(n>0.18) { g.fillStyle=`rgba(255,255,255,${Math.min((n-0.18)*2.1,0.9)})`; g.fillRect(x,y,2.6,2.6); }
+  }
+  // 极冠
+  g.fillStyle='rgba(255,255,255,.93)';
+  g.fillRect(0,0,w,h*0.045); g.fillRect(0,h*0.962,w,h*0.04);
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  return t;
+}
+
+/* 生成全部贴图 */
+const TEX = {
+  regolith: regolithMap(1024),
+  regolithN: regolithNormal(512),
+  solar:    solarPanelMap(512,512),
+  paint:    hullPaintMap(1024),
+  paintN:   hullNormal(512),
+  foilN:    foilNormal(512),
+  carbon:   carbonMap(256),
+  earth:    earthMap(512)
+};
+
+/* =========================================================
+   3. 材质库 —— 区分抛光金属 / 哑光涂层 / 隔热金箔 / 碳纤维
+   ========================================================= */
+const MAT = {};
+// 抛光金属（铝合金结构件）
+MAT.polished = new THREE.MeshPhysicalMaterial({
+  color:0xc9ced6, metalness:1.0, roughness:0.14, clearcoat:0.5, clearcoatRoughness:0.1 });
+// 哑光浅色涂层（主舱）
+MAT.paint = new THREE.MeshPhysicalMaterial({
+  map:TEX.paint, normalMap:TEX.paintN, normalScale:new THREE.Vector2(1.25,1.25),
+  color:0xf2f0ec, metalness:0.22, roughness:0.58, clearcoat:0.34, clearcoatRoughness:0.42 });
+// 深灰哑光（仪器箱）
+MAT.darkPaint = new THREE.MeshStandardMaterial({
+  map:TEX.paint, normalMap:TEX.paintN, color:0x4b5058, metalness:0.38, roughness:0.62 });
+// 隔热金箔（高反射金色 MLI）
+MAT.foil = new THREE.MeshPhysicalMaterial({
+  color:0xffc04e, metalness:1.0, roughness:0.26,
+  normalMap:TEX.foilN, normalScale:new THREE.Vector2(1.7,1.7),
+  clearcoat:0.72, clearcoatRoughness:0.3, sheen:0.4, sheenColor:0xfff0c0 });
+// 碳纤维
+MAT.carbon = new THREE.MeshPhysicalMaterial({
+  map:TEX.carbon, color:0xffffff, metalness:0.52, roughness:0.38,
+  clearcoat:0.85, clearcoatRoughness:0.14 });
+// 丝网车轮金属
+MAT.mesh = new THREE.MeshStandardMaterial({
+  color:0xb6bcc4, metalness:1.0, roughness:0.3,
+  side:THREE.DoubleSide });
+// 暗色机械件
+MAT.steel = new THREE.MeshStandardMaterial({ color:0x6d737b, metalness:1.0, roughness:0.4 });
+MAT.darkSteel = new THREE.MeshStandardMaterial({ color:0x2e3238, metalness:0.9, roughness:0.52 });
+// 太阳能板
+MAT.solar = new THREE.MeshPhysicalMaterial({
+  map:TEX.solar, metalness:0.62, roughness:0.17,
+  clearcoat:1.0, clearcoatRoughness:0.07, side:THREE.DoubleSide });
+MAT.solarBack = new THREE.MeshStandardMaterial({ color:0xd8d4cc, metalness:0.3, roughness:0.72 });
+// 相机镜头玻璃
+MAT.glass = new THREE.MeshPhysicalMaterial({
+  color:0x0a1420, metalness:0.1, roughness:0.03,
+  clearcoat:1.0, clearcoatRoughness:0.0,
+  transmission:0.25, ior:1.6, reflectivity:1.0,
+  emissive:0x16304e, emissiveIntensity:0.45 });
+// 警示色块
+MAT.warnRed = new THREE.MeshStandardMaterial({ color:0xc8302a, metalness:0.3, roughness:0.5 });
+MAT.warnYellow = new THREE.MeshStandardMaterial({ color:0xd8a318, metalness:0.3, roughness:0.48 });
+MAT.navy = new THREE.MeshStandardMaterial({ color:0x1b3a6b, metalness:0.35, roughness:0.46 });
+// 线缆
+MAT.cable = new THREE.MeshStandardMaterial({ color:0x24262b, metalness:0.42, roughness:0.72 });
+// 月壤地形
+MAT.ground = new THREE.MeshStandardMaterial({
+  map:TEX.regolith, normalMap:TEX.regolithN, normalScale:new THREE.Vector2(0.3,0.3),
+  color:0xbdbcb7, metalness:0.0, roughness:0.97 });
+TEX.regolith.repeat.set(30,30); TEX.regolithN.repeat.set(60,60);
+// 岩石
+MAT.rock = new THREE.MeshStandardMaterial({
+  map:TEX.regolith, normalMap:TEX.regolithN, color:0x918f8b, metalness:0.0, roughness:0.93 });
+
+/* =========================================================
+   3.5 程序化环境贴图 —— 让全金属材质有可反射的环境
+   （月面真实环境：极黑太空 + 明亮月壤半球 + 太阳亮斑）
+   ========================================================= */
+function buildEnvironment(){
+  const w=512,h=256;
+  const c=cvs(w); c.height=h; const g=c.getContext('2d');
+  // 上半：深空（近黑）
+  const sky=g.createLinearGradient(0,0,0,h*0.5);
+  sky.addColorStop(0,'#000000'); sky.addColorStop(1,'#05070c');
+  g.fillStyle=sky; g.fillRect(0,0,w,h*0.5);
+  // 太阳亮斑（强、小、硬）
+  const sx=w*0.3, sy=h*0.2;
+  const sg=g.createRadialGradient(sx,sy,0,sx,sy,34);
+  sg.addColorStop(0,'rgba(255,255,255,1)');
+  sg.addColorStop(0.18,'rgba(255,250,236,0.85)');
+  sg.addColorStop(0.5,'rgba(120,118,112,0.2)');
+  sg.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=sg; g.beginPath(); g.arc(sx,sy,34,0,6.283); g.fill();
+  // 地球微弱蓝斑
+  const eg=g.createRadialGradient(w*0.72,h*0.3,0,w*0.72,h*0.3,20);
+  eg.addColorStop(0,'rgba(95,150,225,0.5)'); eg.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=eg; g.beginPath(); g.arc(w*0.72,h*0.3,20,0,6.283); g.fill();
+  // 下半：被阳光照亮的月壤反照（主要补光来源）
+  const grd=g.createLinearGradient(0,h*0.5,0,h);
+  grd.addColorStop(0,'#2a2927'); grd.addColorStop(0.3,'#6d6b66');
+  grd.addColorStop(1,'#8e8c86');
+  g.fillStyle=grd; g.fillRect(0,h*0.5,w,h*0.5);
+  // 地平线锐利分界
+  g.fillStyle='rgba(150,148,142,.5)'; g.fillRect(0,h*0.5-1,w,2);
+
+  // 轻量方案：直接作为等距圆柱反射贴图使用，避免 PMREM 预滤波开销
+  const tex=new THREE.CanvasTexture(c);
+  tex.mapping=THREE.EquirectangularReflectionMapping;
+  tex.colorSpace=THREE.SRGBColorSpace;
+  tex.generateMipmaps=true;
+  tex.minFilter=THREE.LinearMipmapLinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  return tex;
+}
+const ENV = buildEnvironment();
+// 逐材质控制反射强度：金属件明显，涂装/月壤克制
+[['polished',0.85],['mesh',0.8],['steel',0.8],['darkSteel',0.6],['foil',1.0],
+ ['carbon',0.55],['solar',0.75],['glass',1.0],['paint',0.3],['darkPaint',0.3],
+ ['warnRed',0.2],['warnYellow',0.2],['navy',0.2],['cable',0.25],
+ ['solarBack',0.25],['ground',0.14],['rock',0.14]].forEach(([k,v])=>{
+  if(MAT[k]) { MAT[k].envMap = ENV; MAT[k].envMapIntensity = v; MAT[k].needsUpdate = true; }
+});
+
+/* =========================================================
+   4. 光照 —— 强单向太阳 + 极低环境（月球无大气）
+   ========================================================= */
+const sun = new THREE.DirectionalLight(0xfff6e8, 5.0);
+sun.castShadow = true;
+const SHADOW_RES = (devicePixelRatio>1.5 || innerWidth>1600) ? 2048 : 1536;
+sun.shadow.mapSize.set(SHADOW_RES, SHADOW_RES);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 90;
+const SH = 16;
+sun.shadow.camera.left=-SH; sun.shadow.camera.right=SH;
+sun.shadow.camera.top=SH;   sun.shadow.camera.bottom=-SH;
+sun.shadow.bias = -0.0009;
+sun.shadow.normalBias = 0.022;
+scene.add(sun, sun.target);
+
+// 极弱环境光 —— 阴影保持极黑极硬
+const amb = new THREE.AmbientLight(0x1c222e, 0.13);
+scene.add(amb);
+// 月壤反照微弱补光（来自地面的二次反射）
+const bounce = new THREE.DirectionalLight(0x75736d, 0.26);
+bounce.position.set(-0.4,-1,0.3);
+scene.add(bounce);
+// 地球反照蓝色微光
+const earthShine = new THREE.DirectionalLight(0x3a62a8, 0.1);
+scene.add(earthShine);
+
+let sunAngle = 18;
+let trackLit = 1.0;          // 车辙受光系数
+let trackMatRef = null;      // 车辙材质引用（创建后回填）
+function updateSun(deg){
+  sunAngle = deg;
+  const r = THREE.MathUtils.degToRad(deg);
+  const d = 46;
+  sun.position.set(Math.cos(r)*d*0.62, Math.sin(r)*d, Math.cos(r)*d*0.78);
+  // 低太阳角 → 更暖更弱；高角 → 更白更强
+  const t = THREE.MathUtils.clamp((deg-2)/68, 0, 1);
+  sun.intensity = 3.5 + t*2.4;
+  // 月球无大气散射：阳光近乎纯白，仅极低太阳角时带一丝暖意
+  sun.color.setHSL(0.10 - t*0.04, 0.085 - t*0.07, 0.5);
+  renderer.toneMappingExposure = 1.04 - t*0.16;
+  // 车辙明暗随太阳角度联动（车辙材质可能尚未创建，故先存值后同步）
+  trackLit = 0.85 + t*0.5;
+  if(trackMatRef) trackMatRef.uniforms.uLit.value = trackLit;
+}
+updateSun(18);
+
+/* =========================================================
+   5. 星空 —— InstancedMesh 数千颗，亮度与颜色有差异
+   ========================================================= */
+const STAR_COUNT = 4200;
+const starGeo = new THREE.SphereGeometry(1, 5, 4);
+const starMat = new THREE.MeshBasicMaterial({ color:0xffffff, toneMapped:false });
+const stars = new THREE.InstancedMesh(starGeo, starMat, STAR_COUNT);
+stars.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+const starBaseColor = new Float32Array(STAR_COUNT*3);
+{
+  const m=new THREE.Matrix4(), q=new THREE.Quaternion(), s=new THREE.Vector3(), p=new THREE.Vector3();
+  const col=new THREE.Color();
+  const R=6200;
+  for(let i=0;i<STAR_COUNT;i++){
+    // 球面均匀分布，略偏上半球
+    const u=RND()*2-1, th=RND()*Math.PI*2;
+    const sr=Math.sqrt(1-u*u);
+    p.set(sr*Math.cos(th), Math.abs(u)*0.92+0.04, sr*Math.sin(th)).multiplyScalar(R);
+    const mag = Math.pow(RND(), 2.6);           // 少数亮星，多数暗星
+    const size = 2.2 + mag*17;
+    s.set(size,size,size);
+    m.compose(p,q,s);
+    stars.setMatrixAt(i,m);
+    // 恒星色温：蓝白 → 黄 → 橙红
+    const hue = RND()<0.74 ? 0.58+RND()*0.07 : (RND()<0.6 ? 0.12+RND()*0.05 : 0.03+RND()*0.03);
+    const sat = RND()<0.6 ? 0.06+RND()*0.17 : 0.22+RND()*0.3;
+    col.setHSL(hue, sat, 0.56+mag*0.42);
+    starBaseColor[i*3]=col.r; starBaseColor[i*3+1]=col.g; starBaseColor[i*3+2]=col.b;
+    stars.setColorAt(i,col);
+  }
+  stars.instanceMatrix.needsUpdate = true;
+  if(stars.instanceColor) stars.instanceColor.needsUpdate = true;
+}
+stars.frustumCulled = false;
+scene.add(stars);
+
+let starBrightness = 1.0;
+function applyStarBrightness(v){
+  starBrightness=v;
+  const col=new THREE.Color();
+  for(let i=0;i<STAR_COUNT;i++){
+    col.setRGB(starBaseColor[i*3]*v, starBaseColor[i*3+1]*v, starBaseColor[i*3+2]*v);
+    stars.setColorAt(i,col);
+  }
+  if(stars.instanceColor) stars.instanceColor.needsUpdate=true;
+}
+
+// 淡淡的银河带
+{
+  const n=2600;
+  const pos=new Float32Array(n*3), colA=new Float32Array(n*3);
+  const c=new THREE.Color();
+  for(let i=0;i<n;i++){
+    const a=RND()*Math.PI*2;
+    const band=(RND()+RND()+RND())/3-0.5;
+    const v=new THREE.Vector3(Math.cos(a), band*0.42+0.25, Math.sin(a)).normalize().multiplyScalar(6000);
+    pos[i*3]=v.x; pos[i*3+1]=Math.abs(v.y); pos[i*3+2]=v.z;
+    c.setHSL(0.6+RND()*0.08, 0.3, 0.3+RND()*0.3);
+    colA[i*3]=c.r; colA[i*3+1]=c.g; colA[i*3+2]=c.b;
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color', new THREE.BufferAttribute(colA,3));
+  const mw=new THREE.PointsMaterial({ size:14, sizeAttenuation:true, vertexColors:true,
+    transparent:true, opacity:0.5, depthWrite:false, toneMapped:false });
+  const milky=new THREE.Points(g,mw);
+  milky.frustumCulled=false;
+  scene.add(milky);
+}
+
+/* =========================================================
+   6. 地球 —— 地平线上方，带大气辉光
+   ========================================================= */
+const earthGroup = new THREE.Group();
+{
+  const R=215;
+  const globe = new THREE.Mesh(
+    new THREE.SphereGeometry(R, 64, 48),
+    new THREE.MeshStandardMaterial({ map:TEX.earth, roughness:0.82, metalness:0.0,
+      emissive:0x0a1a33, emissiveIntensity:0.25 })
+  );
+  globe.rotation.y = 2.1;
+  earthGroup.add(globe);
+
+  // 内层大气薄壳
+  const atmo = new THREE.Mesh(
+    new THREE.SphereGeometry(R*1.035, 48, 32),
+    new THREE.MeshBasicMaterial({ color:0x5d9ae8, transparent:true, opacity:0.14,
+      side:THREE.BackSide, depthWrite:false, toneMapped:false })
+  );
+  earthGroup.add(atmo);
+
+  // 边缘辉光 —— 自定义 shader 菲涅尔
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(R*1.19, 48, 32),
+    new THREE.ShaderMaterial({
+      transparent:true, side:THREE.BackSide, depthWrite:false, blending:THREE.AdditiveBlending,
+      uniforms:{ uColor:{ value:new THREE.Color(0x6fb0ff) } },
+      vertexShader:`varying vec3 vN; varying vec3 vP;
+        void main(){ vN=normalize(normalMatrix*normal);
+          vec4 mv=modelViewMatrix*vec4(position,1.0); vP=mv.xyz;
+          gl_Position=projectionMatrix*mv; }`,
+      fragmentShader:`uniform vec3 uColor; varying vec3 vN; varying vec3 vP;
+        void main(){ float f=pow(1.0-abs(dot(normalize(vN),normalize(-vP))),2.6);
+          gl_FragColor=vec4(uColor, f*0.85); }`
+    })
+  );
+  earthGroup.add(glow);
+
+  earthGroup.position.set(-980, 300, -2950);
+  scene.add(earthGroup);
+}
+
+/* =========================================================
+   7. 月球地形 —— fBm 丘陵 + 带抬升环形坑沿的陨石坑
+   ========================================================= */
+const TERRAIN_SIZE = 1100;     // 足够大：行驶路径为闭环，永不到边缘
+const TERRAIN_SEG  = 320;
+
+// --- 陨石坑数据 ---
+const CRATERS = [];
+(function(){
+  const PATH_R = 46;          // 行驶环形路径半径
+  for(let i=0;i<78;i++){
+    const a=RND()*Math.PI*2;
+    const rr=Math.pow(RND(),0.55)*TERRAIN_SIZE*0.46;
+    const x=Math.cos(a)*rr, z=Math.sin(a)*rr;
+    const dPath=Math.abs(Math.hypot(x,z)-PATH_R);
+    // 大坑避开行驶路径，小坑允许靠近
+    let R = 5 + Math.pow(RND(),2.0)*52;
+    if(dPath < R*1.25) R = Math.min(R, Math.max(2.4, dPath*0.7));
+    if(R < 2.2) continue;
+    CRATERS.push({ x, z, R, depth: R*(0.13+RND()*0.1), rim: 0.3+RND()*0.22 });
+  }
+  // 近景中心区的小坑，保证镜头里一定有坑
+  for(let i=0;i<30;i++){
+    const a=RND()*Math.PI*2, rr=12+RND()*78;
+    const x=Math.cos(a)*rr, z=Math.sin(a)*rr;
+    const R=2.6+RND()*7.5;
+    const dPath=Math.abs(Math.hypot(x,z)-PATH_R);
+    if(dPath < R*1.1) continue;
+    CRATERS.push({ x, z, R, depth:R*(0.15+RND()*0.11), rim:0.34+RND()*0.2 });
+  }
+})();
+
+// --- 统一高度函数（地形网格与车辆贴地共用）---
+function terrainHeight(x,z){
+  // 大尺度丘陵
+  let h = fbm(x*0.0045, z*0.0045, 5)*11.0;
+  h += fbm(x*0.016,  z*0.016,  4)*2.9;
+  h += fbm(x*0.062,  z*0.062,  3)*0.56;
+  h += fbm(x*0.23,   z*0.23,   2)*0.1;     // 月壤细颗粒感
+  // 陨石坑
+  for(let i=0;i<CRATERS.length;i++){
+    const c=CRATERS[i];
+    const dx=x-c.x, dz=z-c.z;
+    const d=Math.sqrt(dx*dx+dz*dz);
+    const outer=c.R*1.42;
+    if(d>outer) continue;
+    const t=d/c.R;
+    if(t<1){
+      // 碗状凹陷：平滑抛物面
+      const bowl=(1-t*t);
+      h -= c.depth*bowl*bowl*1.18;
+      // 坑沿抬升（从 0.72 开始上翘）
+      if(t>0.66){ const k=(t-0.66)/0.34; h += c.depth*c.rim*Math.sin(k*Math.PI*0.95)*1.5; }
+    } else {
+      // 坑外环形溅射缓坡
+      const k=(d-c.R)/(outer-c.R);
+      h += c.depth*c.rim*1.5*Math.pow(1-k,2.1)*0.72;
+    }
+  }
+  return h;
+}
+
+// --- 地形网格 ---
+const groundGeo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEG, TERRAIN_SEG);
+groundGeo.rotateX(-Math.PI/2);
+{
+  const p = groundGeo.attributes.position;
+  for(let i=0;i<p.count;i++){
+    p.setY(i, terrainHeight(p.getX(i), p.getZ(i)));
+  }
+  p.needsUpdate = true;
+  groundGeo.computeVertexNormals();
+}
+const ground = new THREE.Mesh(groundGeo, MAT.ground);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// --- 远景低模外环地形，把地平线推远并保持锐利 ---
+{
+  const far = new THREE.Mesh(
+    new THREE.RingGeometry(TERRAIN_SIZE*0.49, 9000, 96, 10),
+    new THREE.MeshStandardMaterial({ color:0x9b9a96, roughness:1.0, metalness:0.0 })
+  );
+  far.rotation.x = -Math.PI/2;
+  const fp = far.geometry.attributes.position;
+  for(let i=0;i<fp.count;i++){
+    const x=fp.getX(i), y=fp.getY(i);
+    const d=Math.hypot(x,y);
+    fp.setZ(i, fbm(x*0.0016,y*0.0016,4)*22 * Math.min(1,(d-TERRAIN_SIZE*0.49)/900) - 1.2);
+  }
+  fp.needsUpdate=true; far.geometry.computeVertexNormals();
+  far.receiveShadow = false;
+  scene.add(far);
+}
+
+/* =========================================================
+   8. 散落岩石 —— InstancedMesh，三种不规则形状
+   ========================================================= */
+function rockGeometry(seed, detail){
+  const g = new THREE.IcosahedronGeometry(1, detail);
+  const p = g.attributes.position;
+  const r = makeRng(seed);
+  const off = r()*100;
+  for(let i=0;i<p.count;i++){
+    const x=p.getX(i), y=p.getY(i), z=p.getZ(i);
+    const n = fbm(x*1.5+off, z*1.5+off, 4)*0.34 + fbm(y*3.1+off, x*3.1, 3)*0.2;
+    const k = 1 + n;
+    // 轻微压扁，像风化卧石
+    p.setXYZ(i, x*k*(1+0.22*fbm(y*2,z*2,2)), y*k*0.74, z*k*(1+0.2*fbm(x*2,y*2,2)));
+  }
+  p.needsUpdate=true; g.computeVertexNormals();
+  return g;
+}
+const ROCK_SETS = [
+  { geo: rockGeometry(11, 2), count: 620, min:0.1,  max:0.42 },  // 碎石
+  { geo: rockGeometry(29, 2), count: 260, min:0.4,  max:1.25 },  // 中石
+  { geo: rockGeometry(47, 3), count: 74,  min:1.3,  max:4.2  }   // 大漂石
+];
+const PATH_RADIUS = 46;
+ROCK_SETS.forEach((set, si)=>{
+  const inst = new THREE.InstancedMesh(set.geo, MAT.rock, set.count);
+  const m=new THREE.Matrix4(), q=new THREE.Quaternion(), e=new THREE.Euler(),
+        s=new THREE.Vector3(), pos=new THREE.Vector3();
+  let placed=0, guard=0;
+  while(placed<set.count && guard<set.count*40){
+    guard++;
+    const a=RND()*Math.PI*2;
+    // 近景密集、远景稀疏
+    const rr = si===0 ? 4+Math.pow(RND(),0.8)*150
+             : si===1 ? 6+Math.pow(RND(),0.75)*260
+                      : 14+Math.pow(RND(),0.7)*420;
+    const x=Math.cos(a)*rr, z=Math.sin(a)*rr;
+    const sc = set.min + RND()*(set.max-set.min);
+    // 不要压在行驶路径上
+    if(Math.abs(Math.hypot(x,z)-PATH_RADIUS) < sc*2.2 + 1.5) continue;
+    const y = terrainHeight(x,z) - sc*0.3;      // 半埋入月壤
+    pos.set(x,y,z);
+    e.set(RND()*0.5-0.25, RND()*Math.PI*2, RND()*0.5-0.25);
+    q.setFromEuler(e);
+    s.set(sc*(0.78+RND()*0.5), sc*(0.6+RND()*0.45), sc*(0.78+RND()*0.5));
+    m.compose(pos,q,s);
+    inst.setMatrixAt(placed,m);
+    placed++;
+  }
+  inst.count = placed;
+  inst.instanceMatrix.needsUpdate = true;
+  inst.castShadow = true;
+  inst.receiveShadow = true;
+  scene.add(inst);
+});
+
+/* =========================================================
+   9. 探测车 —— 全部由基础几何体程序化组合
+   ========================================================= */
+const rover = new THREE.Group();
+scene.add(rover);
+
+/* 共享小几何体（减少 draw-call 开销与内存） */
+const G = {
+  bolt:   new THREE.CylinderGeometry(0.012,0.012,0.012,8),
+  boltHead:new THREE.CylinderGeometry(0.016,0.016,0.009,6),
+  rivet:  new THREE.SphereGeometry(0.011,8,6),
+  slat:   new THREE.BoxGeometry(1,1,1),
+  rod:    new THREE.CylinderGeometry(1,1,1,10)
+};
+/* 将 group 内静态网格按材质合并，大幅降低 draw call */
+function mergeByMaterial(src){
+  const buckets=new Map();
+  src.updateMatrixWorld(true);
+  const inv=new THREE.Matrix4().copy(src.matrixWorld).invert();
+  src.traverse(o=>{
+    if(!o.isMesh || !o.geometry) return;
+    const key=o.material.uuid;
+    if(!buckets.has(key)) buckets.set(key,{mat:o.material, geos:[]});
+    const g=o.geometry.clone();
+    const m=new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+    g.applyMatrix4(m);
+    // 统一属性集，保证可合并
+    for(const name of Object.keys(g.attributes))
+      if(!['position','normal','uv'].includes(name)) g.deleteAttribute(name);
+    if(!g.attributes.uv){
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count*2),2));
+    }
+    if(!g.index) g.setIndex([...Array(g.attributes.position.count).keys()]);
+    buckets.get(key).geos.push(g);
+  });
+  const out=new THREE.Group();
+  buckets.forEach(b=>{
+    const merged = b.geos.length===1 ? b.geos[0] : BGU.mergeGeometries(b.geos, false);
+    if(!merged) return;
+    const mesh=new THREE.Mesh(merged, b.mat);
+    mesh.castShadow=true; mesh.receiveShadow=true;
+    out.add(mesh);
+  });
+  return out;
+}
+
+function mk(geo, mat, x=0,y=0,z=0, shadow=true){
+  const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z);
+  m.castShadow=shadow; m.receiveShadow=shadow; return m;
+}
+function box(w,h,d,mat,x,y,z,shadow=true){
+  return mk(new THREE.BoxGeometry(w,h,d), mat, x,y,z, shadow);
+}
+function cyl(rt,rb,h,seg,mat,x,y,z,shadow=true){
+  return mk(new THREE.CylinderGeometry(rt,rb,h,seg), mat, x,y,z, shadow);
+}
+/* 螺栓阵列 */
+function boltRow(parent, n, from, to, mat=MAT.polished, rot=null, scale=1){
+  for(let i=0;i<n;i++){
+    const t=n===1?0.5:i/(n-1);
+    const b=new THREE.Mesh(G.boltHead, mat);
+    b.position.lerpVectors(from,to,t);
+    b.scale.setScalar(scale);
+    if(rot) b.rotation.copy(rot);
+    b.castShadow=true;
+    parent.add(b);
+  }
+}
+/* 管状线缆束（Catmull 曲线 → TubeGeometry） */
+function cableRun(points, radius=0.012, mat=MAT.cable, seg=28){
+  const curve=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)));
+  const t=new THREE.Mesh(new THREE.TubeGeometry(curve, seg, radius, 7, false), mat);
+  t.castShadow=true;
+  return t;
+}
+
+/* ---------- 9.1 主舱体 ---------- */
+const BODY_L=2.06, BODY_W=1.30, BODY_H=0.52;
+const chassis = new THREE.Group();
+chassis.position.y = 0.70;
+rover.add(chassis);
+
+// 主舱（倒角箱体）
+{
+  const hull = box(BODY_L, BODY_H, BODY_W, MAT.paint, 0, 0, 0);
+  hull.material = MAT.paint;
+  chassis.add(hull);
+
+  // 顶部与底部的抛光金属加强框
+  chassis.add(box(BODY_L*1.012, 0.032, BODY_W*1.012, MAT.polished, 0,  BODY_H/2+0.014, 0));
+  chassis.add(box(BODY_L*1.012, 0.028, BODY_W*1.012, MAT.polished, 0, -BODY_H/2-0.012, 0));
+
+  // 四条竖向角柱（面板分缝的视觉锚点）
+  for(const sx of [-1,1]) for(const sz of [-1,1]){
+    chassis.add(box(0.05, BODY_H*1.02, 0.05, MAT.polished,
+      sx*(BODY_L/2-0.016), 0, sz*(BODY_W/2-0.016)));
+  }
+
+  // 侧面水平加强筋 + 铆钉带
+  for(const sz of [-1,1]){
+    const z=sz*(BODY_W/2+0.008);
+    chassis.add(box(BODY_L*0.94, 0.026, 0.016, MAT.polished, 0,  0.15, z));
+    chassis.add(box(BODY_L*0.94, 0.026, 0.016, MAT.polished, 0, -0.15, z));
+    boltRow(chassis, 11,
+      new THREE.Vector3(-BODY_L*0.45, 0.205, z+sz*0.004),
+      new THREE.Vector3( BODY_L*0.45, 0.205, z+sz*0.004), MAT.polished,
+      new THREE.Euler(Math.PI/2,0,0), 0.9);
+    boltRow(chassis, 11,
+      new THREE.Vector3(-BODY_L*0.45, -0.205, z+sz*0.004),
+      new THREE.Vector3( BODY_L*0.45, -0.205, z+sz*0.004), MAT.polished,
+      new THREE.Euler(Math.PI/2,0,0), 0.9);
+  }
+
+  // 隔热金箔包覆（下腹部 MLI 毯）
+  const foil = box(BODY_L*0.93, 0.2, BODY_W*0.97, MAT.foil, 0, -BODY_H/2+0.085, 0);
+  chassis.add(foil);
+  // 金箔侧裙
+  for(const sz of [-1,1]){
+    const skirt = box(BODY_L*0.88, 0.17, 0.012, MAT.foil, 0, -0.12, sz*(BODY_W/2+0.014));
+    chassis.add(skirt);
+  }
+
+  // ---------- 散热格栅（前后各一组，细叶片） ----------
+  function grille(px, pz, w, h, slats, horizontal, rotY){
+    const grp=new THREE.Group();
+    const frame = box(w+0.05, h+0.05, 0.03, MAT.darkSteel, 0,0,0);
+    grp.add(frame);
+    grp.add(box(w, h, 0.012, MAT.darkPaint, 0,0,0.012));
+    for(let i=0;i<slats;i++){
+      const t=(i+0.5)/slats;
+      if(horizontal){
+        const s=box(w*0.97, h/slats*0.52, 0.026, MAT.polished, 0, (t-0.5)*h, 0.022);
+        s.rotation.x = -0.42;
+        grp.add(s);
+      } else {
+        const s=box(w/slats*0.5, h*0.97, 0.026, MAT.polished, (t-0.5)*w, 0, 0.022);
+        s.rotation.y = 0.4;
+        grp.add(s);
+      }
+    }
+    grp.position.set(px, 0.02, pz);
+    grp.rotation.y = rotY;
+    return grp;
+  }
+  // 车体后部散热格栅（朝 -X）
+  chassis.add(grille(-BODY_L/2-0.016, 0.0, 0.42, 0.3, 9, true, -Math.PI/2));
+  // 两侧小格栅
+  chassis.add(grille(0.46,  BODY_W/2+0.014, 0.3, 0.22, 7, true, 0));
+  chassis.add(grille(0.46, -BODY_W/2-0.014, 0.3, 0.22, 7, true, Math.PI));
+
+  // ---------- 顶面设备与分格面板 ----------
+  const deck = box(BODY_L*0.97, 0.02, BODY_W*0.96, MAT.carbon, 0, BODY_H/2+0.038, 0);
+  chassis.add(deck);
+  // 顶面纵横细筋
+  for(let i=-2;i<=2;i++)
+    chassis.add(box(BODY_L*0.95, 0.014, 0.018, MAT.polished, 0, BODY_H/2+0.05, i*0.24));
+  for(let i=-3;i<=3;i++)
+    chassis.add(box(0.016, 0.012, BODY_W*0.93, MAT.polished, i*0.28, BODY_H/2+0.05, 0));
+
+  // ---------- 警示标识色块 ----------
+  // 车体侧面红白警示条
+  for(const sz of [-1,1]){
+    const z=sz*(BODY_W/2+0.016);
+    for(let i=0;i<5;i++){
+      chassis.add(box(0.075, 0.075, 0.006,
+        i%2 ? MAT.warnYellow : MAT.warnRed, -0.72+i*0.078, 0.02, z, false));
+    }
+    // 蓝色机构标识块
+    chassis.add(box(0.26, 0.12, 0.006, MAT.navy, 0.30, 0.02, z, false));
+    // 白色小方块（铭牌）
+    chassis.add(box(0.1, 0.07, 0.006, MAT.polished, 0.60, 0.02, z, false));
+  }
+  // 车顶警示红块
+  chassis.add(box(0.18,0.008,0.18, MAT.warnRed, -0.82, BODY_H/2+0.052, 0.36, false));
+
+  // ---------- 侧面仪器箱 ----------
+  function instrumentBox(w,h,d,x,y,z,mat){
+    const g=new THREE.Group();
+    g.add(box(w,h,d,mat,0,0,0));
+    // 箱盖螺栓
+    for(const sx of [-1,1]) for(const sy of [-1,1]){
+      const b=new THREE.Mesh(G.boltHead, MAT.polished);
+      b.position.set(sx*(w/2-0.022), sy*(h/2-0.022), d/2+0.004);
+      b.rotation.x=Math.PI/2; b.scale.setScalar(1.1); b.castShadow=true;
+      g.add(b);
+    }
+    // 散热鳍片
+    for(let i=0;i<5;i++)
+      g.add(box(w*0.86, 0.01, 0.02, MAT.polished, 0, -h/2+0.03+i*((h-0.06)/4), d/2+0.014));
+    g.position.set(x,y,z);
+    return g;
+  }
+  chassis.add(instrumentBox(0.34,0.26,0.12, -0.34, -0.03,  BODY_W/2+0.072, MAT.darkPaint));
+  chassis.add(instrumentBox(0.26,0.2, 0.1,   0.22, -0.05, -BODY_W/2-0.062, MAT.darkPaint));
+  chassis.add(instrumentBox(0.2, 0.2, 0.2,  -0.80,  0.0,   0.0,            MAT.darkPaint));
+
+  // 前部光谱仪筒
+  const spectro = cyl(0.07,0.07,0.2,16, MAT.polished, BODY_L/2+0.04, -0.08, 0.34);
+  spectro.rotation.z=Math.PI/2; chassis.add(spectro);
+  chassis.add(cyl(0.075,0.075,0.02,16, MAT.darkSteel, BODY_L/2+0.14, -0.08, 0.34).rotateZ(Math.PI/2));
+
+  // RTG 同位素电源（尾部带鳍片圆柱）
+  const rtg=new THREE.Group();
+  rtg.add(cyl(0.085,0.085,0.42,20, MAT.darkSteel,0,0,0));
+  for(let i=0;i<8;i++){
+    const f=box(0.012,0.1,0.4, MAT.polished, 0,0,0);
+    f.rotation.y = i/8*Math.PI*2;
+    f.position.set(Math.cos(i/8*Math.PI*2)*0.1, 0, Math.sin(i/8*Math.PI*2)*0.1);
+    f.lookAt(0,0,0); f.castShadow=true;
+    rtg.add(f);
+  }
+  rtg.rotation.z=Math.PI/2;
+  rtg.rotation.x=0.18;
+  rtg.position.set(-BODY_L/2-0.14, 0.06, -0.3);
+  chassis.add(rtg);
+
+  // ---------- 线缆束 ----------
+  chassis.add(cableRun([
+    [-0.34, 0.1,  BODY_W/2+0.072],[-0.1, 0.19, BODY_W/2+0.05],
+    [ 0.26, 0.2,  BODY_W/2+0.03],[ 0.62, 0.1,  BODY_W/2+0.02]], 0.016));
+  chassis.add(cableRun([
+    [-0.34, 0.08, BODY_W/2+0.09],[-0.06, 0.16, BODY_W/2+0.075],
+    [ 0.3,  0.17, BODY_W/2+0.055],[ 0.6,  0.06, BODY_W/2+0.03]], 0.011));
+  chassis.add(cableRun([
+    [ 0.22, 0.06, -BODY_W/2-0.062],[0.02, 0.2, -BODY_W/2-0.04],
+    [-0.4,  0.22, -BODY_W/2-0.03],[-0.78, 0.1, -BODY_W/2-0.02]], 0.014));
+  chassis.add(cableRun([
+    [ BODY_L/2-0.1, 0.26, 0.3],[BODY_L/2-0.3, 0.3, 0.42],
+    [ BODY_L/2-0.6, 0.29, 0.5],[BODY_L/2-0.9, 0.27, 0.46]], 0.01));
+  // 线缆固定卡箍
+  for(const p of [[-0.1,0.19,BODY_W/2+0.05],[0.26,0.2,BODY_W/2+0.03],[-0.4,0.22,-BODY_W/2-0.03]]){
+    const cl=cyl(0.026,0.026,0.016,10, MAT.polished, p[0],p[1],p[2]);
+    cl.rotation.x=Math.PI/2; chassis.add(cl);
+  }
+}
+
+/* ---------- 9.2 金属丝网车轮（阿波罗 LRV / VIPER 风格） ---------- */
+const WHEEL_R = 0.325, WHEEL_W = 0.235;
+
+function buildWheel(){
+  const w = new THREE.Group();
+  const AX = new THREE.Vector3(0,0,1);          // 轮轴 = Z
+  const UPY = new THREE.Vector3(0,1,0);         // 圆柱/箱体默认长轴 = Y
+
+  // 把一个长轴为 Y 的物体对齐到任意方向
+  function aim(mesh, dir){
+    mesh.quaternion.setFromUnitVectors(UPY, dir.clone().normalize());
+  }
+
+  // --- 经向细钢丝环：轮盘平面 = XY，环法线 = Z（无需旋转）---
+  const WIRES = 30;
+  const wireGeo = new THREE.TorusGeometry(WHEEL_R, 0.0072, 5, 30);
+  for(let i=0;i<WIRES;i++){
+    const t = WIRES===1 ? 0.5 : i/(WIRES-1);
+    const ring=new THREE.Mesh(wireGeo, MAT.mesh);
+    ring.position.z=(t-0.5)*WHEEL_W*0.94;
+    // 丝网中部受压略微外凸，形成真实的轮胎鼓形
+    const bulge = 1 - Math.pow((t-0.5)*2, 2)*0.055;
+    ring.scale.set(bulge, bulge, 1);
+    ring.castShadow=true;
+    w.add(ring);
+  }
+
+  // --- 交叉编织钢丝：长轴沿轮轴方向，并在切平面内左右倾斜 ---
+  const XW = 26;
+  const chordGeo = new THREE.CylinderGeometry(0.0058,0.0058,WHEEL_W*1.06,5);
+  for(let i=0;i<XW;i++){
+    const a=i/XW*Math.PI*2;
+    const tangent=new THREE.Vector3(-Math.sin(a), Math.cos(a), 0);
+    for(const sgn of [1,-1]){
+      const c=new THREE.Mesh(chordGeo, MAT.mesh);
+      // 轴向为主 + 切向倾斜 → 菱形网格
+      const dir=new THREE.Vector3().copy(AX).multiplyScalar(0.9)
+                 .addScaledVector(tangent, sgn*0.42);
+      aim(c, dir);
+      c.position.set(Math.cos(a)*WHEEL_R*0.992, Math.sin(a)*WHEEL_R*0.992, 0);
+      c.castShadow=true;
+      w.add(c);
+    }
+  }
+
+  // --- 人字形抓地胎面条：贴附轮面，沿轴向横跨 ---
+  for(let i=0;i<18;i++){
+    const a=i/18*Math.PI*2;
+    const radial=new THREE.Vector3(Math.cos(a), Math.sin(a), 0);
+    const tangent=new THREE.Vector3(-Math.sin(a), Math.cos(a), 0);
+    for(const half of [-1,1]){
+      // 薄片：Y 为长边（轴向横跨），X/Z 为厚度
+      const gr=new THREE.Mesh(new THREE.BoxGeometry(0.016, WHEEL_W*0.46, 0.026), MAT.polished);
+      const dir=new THREE.Vector3().copy(AX).multiplyScalar(1.0)
+                 .addScaledVector(tangent, half*0.26);     // 人字倾角
+      aim(gr, dir);
+      gr.position.copy(radial).multiplyScalar(WHEEL_R+0.009);
+      gr.position.z = half*WHEEL_W*0.235;
+      gr.castShadow=true;
+      w.add(gr);
+    }
+  }
+
+  // --- 轮缘环（两侧）---
+  for(const sz of [-1,1]){
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R*1.004, 0.015, 7, 40), MAT.polished);
+    rim.position.z=sz*WHEEL_W/2;
+    rim.castShadow=true;
+    w.add(rim);
+  }
+  // 内侧缓冲衬环
+  const inner=new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R*0.70, 0.024, 8, 32), MAT.darkSteel);
+  inner.castShadow=true; w.add(inner);
+  // 中段加强环
+  const midRing=new THREE.Mesh(new THREE.TorusGeometry(WHEEL_R*0.88, 0.0075, 6, 34), MAT.mesh);
+  midRing.castShadow=true; w.add(midRing);
+
+  // --- 轮毂（轴沿 Z）---
+  const hub=cyl(0.082,0.082,WHEEL_W*0.5,20, MAT.polished,0,0,0);
+  hub.rotation.x=Math.PI/2; w.add(hub);
+  const hubCap=cyl(0.06,0.05,0.028,16, MAT.foil,0,0,WHEEL_W*0.27);
+  hubCap.rotation.x=Math.PI/2; w.add(hubCap);
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2;
+    const b=new THREE.Mesh(G.boltHead, MAT.darkSteel);
+    b.position.set(Math.cos(a)*0.045, Math.sin(a)*0.045, WHEEL_W*0.29);
+    b.rotation.x=Math.PI/2; b.scale.setScalar(1.3); b.castShadow=true;
+    w.add(b);
+  }
+
+  // --- 双层 V 形辐条：位于轮盘平面内，径向展开 ---
+  const SPOKES=14;
+  for(let i=0;i<SPOKES;i++){
+    const a=i/SPOKES*Math.PI*2;
+    const len=WHEEL_R-0.082;
+    for(const sz of [-1,1]){
+      const sp=cyl(0.0078,0.0105,len,6, MAT.polished,0,0,0);
+      // 长轴沿径向
+      sp.rotation.z=a-Math.PI/2;
+      sp.position.set(Math.cos(a)*(0.082+len/2), Math.sin(a)*(0.082+len/2), sz*WHEEL_W*0.2);
+      sp.castShadow=true;
+      w.add(sp);
+    }
+  }
+
+  // 合并为极少数网格，显著降低 draw call
+  return mergeByMaterial(w);
+}
+
+/* ---------- 9.3 rocker-bogie 悬挂 ---------- */
+// 轮位：X 前后，Z 左右；6 轮独立
+const WHEEL_POS = [
+  { x: 0.86, z: 0.80, role:'front' },
+  { x: 0.00, z: 0.80, role:'mid'   },
+  { x:-0.86, z: 0.80, role:'rear'  },
+  { x: 0.86, z:-0.80, role:'front' },
+  { x: 0.00, z:-0.80, role:'mid'   },
+  { x:-0.86, z:-0.80, role:'rear'  }
+];
+const wheels = [];
+const legs = [];
+
+WHEEL_POS.forEach((wp, idx)=>{
+  const side = Math.sign(wp.z);
+
+  // 腿部组（挂在 chassis 下方，支点在车体侧）
+  const leg = new THREE.Group();
+  leg.position.set(wp.x*0.52, -BODY_H/2+0.06, wp.z*0.42);
+  chassis.add(leg);
+  legs.push(leg);
+
+  // --- 摇臂连杆：从车体支点斜向外下连到轮轴 ---
+  const axleLocal = new THREE.Vector3(wp.x - wp.x*0.52, -0.70+BODY_H/2-0.06+WHEEL_R, wp.z - wp.z*0.42);
+
+  function strut(from, to, r1, r2, mat){
+    const dir=new THREE.Vector3().subVectors(to,from);
+    const len=dir.length();
+    const m=cyl(r1,r2,len,10, mat, 0,0,0);
+    m.position.copy(from).addScaledVector(dir,0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+    return m;
+  }
+
+  const pivot = new THREE.Vector3(0,0,0);
+  const kneeA = new THREE.Vector3(axleLocal.x*0.46, axleLocal.y*0.44, axleLocal.z*0.72);
+  const kneeB = new THREE.Vector3(axleLocal.x*0.82, axleLocal.y*0.8,  axleLocal.z*0.94);
+
+  // 主摇臂（上段，较粗）
+  leg.add(strut(pivot, kneeA, 0.034, 0.028, MAT.polished));
+  // 转向节段
+  leg.add(strut(kneeA, kneeB, 0.027, 0.023, MAT.polished));
+  // 下段至轮轴
+  leg.add(strut(kneeB, axleLocal, 0.024, 0.02, MAT.carbon));
+  // 平行辅助拉杆（bogie 三角形）
+  const braceTop = new THREE.Vector3(axleLocal.x*0.12, 0.085, axleLocal.z*0.3);
+  leg.add(strut(braceTop, kneeB, 0.014, 0.012, MAT.darkSteel));
+  leg.add(strut(braceTop, pivot, 0.012, 0.012, MAT.darkSteel));
+  // 前/后轮额外的差动连杆，强化 rocker-bogie 观感
+  if(wp.role !== 'mid'){
+    const diff = new THREE.Vector3(axleLocal.x*0.3, 0.12, axleLocal.z*0.55);
+    leg.add(strut(diff, kneeA, 0.011, 0.011, MAT.darkSteel));
+  }
+
+  // 关节：支点与膝部的圆柱轴套
+  [pivot, kneeA, kneeB].forEach((pt,i)=>{
+    const j=cyl(0.042-i*0.006, 0.042-i*0.006, 0.062, 14, MAT.darkSteel, pt.x,pt.y,pt.z);
+    j.rotation.x=Math.PI/2;
+    leg.add(j);
+    // 关节端盖金箔
+    const cap=cyl(0.03-i*0.004,0.026-i*0.004,0.016,12, MAT.foil, pt.x,pt.y,pt.z+side*0.038);
+    cap.rotation.x=Math.PI/2;
+    leg.add(cap);
+  });
+
+  // 转向作动器（前后轮）
+  if(wp.role!=='mid'){
+    const act=cyl(0.03,0.03,0.12,12, MAT.darkSteel, axleLocal.x, axleLocal.y+0.1, axleLocal.z);
+    leg.add(act);
+    const rodm=cyl(0.012,0.012,0.08,8, MAT.polished, axleLocal.x, axleLocal.y+0.185, axleLocal.z);
+    leg.add(rodm);
+  }
+
+  // 轮毂电机壳
+  const motor=cyl(0.062,0.062,0.1,16, MAT.darkSteel, axleLocal.x, axleLocal.y, axleLocal.z - side*0.1);
+  motor.rotation.x=Math.PI/2;
+  leg.add(motor);
+
+  // 腿部线缆（沿摇臂走线）
+  leg.add(cableRun([
+    [braceTop.x, braceTop.y+0.02, braceTop.z],
+    [kneeA.x, kneeA.y+0.03, kneeA.z],
+    [kneeB.x, kneeB.y+0.025, kneeB.z],
+    [axleLocal.x, axleLocal.y+0.05, axleLocal.z]], 0.008));
+
+  // 车轮本体
+  const wheel = buildWheel();
+  wheel.position.copy(axleLocal);
+  leg.add(wheel);
+  wheels.push({ mesh:wheel, data:wp, leg, axleLocal:axleLocal.clone(),
+                worldX: wp.x, worldZ: wp.z });
+});
+
+/* ---------- 9.4 顶部太阳能板阵列（略微倾斜） ---------- */
+const solarRig = new THREE.Group();
+solarRig.position.set(-0.12, BODY_H/2 + 0.2, 0);
+chassis.add(solarRig);
+{
+  // 支撑立柱
+  for(const sx of [-1,1]) for(const sz of [-1,1]){
+    solarRig.add(cyl(0.018,0.018,0.2,10, MAT.polished, sx*0.52, -0.1, sz*0.42));
+  }
+  // 主板（倾斜 10°，朝向太阳侧）
+  const panelGrp = new THREE.Group();
+  panelGrp.rotation.z = -0.175;           // ~10°
+  panelGrp.rotation.x = 0.055;
+  solarRig.add(panelGrp);
+
+  function panel(w,d,x,z,rotY=0,rotZ=0){
+    const g=new THREE.Group();
+    // 电池片正面
+    const face=box(w,0.012,d, MAT.solar, 0,0.008,0);
+    g.add(face);
+    // 背板
+    g.add(box(w*0.995,0.01,d*0.995, MAT.solarBack, 0,-0.004,0));
+    // 蜂窝边框
+    g.add(box(w+0.024,0.026,0.022, MAT.polished, 0,0, d/2+0.011));
+    g.add(box(w+0.024,0.026,0.022, MAT.polished, 0,0,-d/2-0.011));
+    g.add(box(0.022,0.026,d+0.024, MAT.polished,  w/2+0.011,0,0));
+    g.add(box(0.022,0.026,d+0.024, MAT.polished, -w/2-0.011,0,0));
+    // 背面加强桁架
+    for(let i=-1;i<=1;i++) g.add(box(w*0.96,0.016,0.014, MAT.polished, 0,-0.016,i*d*0.3));
+    g.position.set(x,0,z);
+    g.rotation.y=rotY; g.rotation.z=rotZ;
+    return g;
+  }
+  // 中央主板
+  panelGrp.add(panel(1.16, 1.0, 0, 0));
+  // 左右侧展开翼板（略微上折）
+  const wingL = panel(0.56, 0.94, 0, 0.98, 0, 0);
+  wingL.rotation.x = 0.14;  panelGrp.add(wingL);
+  const wingR = panel(0.56, 0.94, 0, -0.98, 0, 0);
+  wingR.rotation.x = -0.14; panelGrp.add(wingR);
+  // 翼板铰链
+  for(const sz of [1,-1]){
+    const h=cyl(0.016,0.016,0.5,10, MAT.darkSteel, 0,-0.012, sz*0.52);
+    h.rotation.z=Math.PI/2; h.rotation.y=Math.PI/2;
+    panelGrp.add(h);
+  }
+}
+
+/* ---------- 9.5 高增益碟形天线 + 鞭状天线 ---------- */
+const dishRig = new THREE.Group();
+dishRig.position.set(-0.74, BODY_H/2+0.1, 0.4);
+chassis.add(dishRig);
+{
+  // 双轴万向支座
+  dishRig.add(cyl(0.05,0.062,0.1,14, MAT.darkSteel, 0,0.05,0));
+  dishRig.add(cyl(0.028,0.028,0.26,12, MAT.polished, 0,0.22,0));
+  const gimbal=cyl(0.038,0.038,0.07,14, MAT.darkSteel, 0,0.37,0);
+  gimbal.rotation.z=Math.PI/2; dishRig.add(gimbal);
+
+  const dishGroup=new THREE.Group();
+  dishGroup.position.y=0.4;
+  dishGroup.rotation.set(-0.72, 0.5, 0.18);          // 指向地球方向
+  dishRig.add(dishGroup);
+
+  // 碟面（抛物面：用 LatheGeometry 旋成）
+  const pts=[];
+  for(let i=0;i<=16;i++){
+    const r=i/16*0.30;
+    pts.push(new THREE.Vector2(r, r*r*1.5));
+  }
+  const dish=new THREE.Mesh(new THREE.LatheGeometry(pts, 48),
+    new THREE.MeshPhysicalMaterial({ color:0xf0f2f5, metalness:0.92, roughness:0.17,
+      clearcoat:0.6, side:THREE.DoubleSide,
+      envMap:ENV, envMapIntensity:1.0 }));
+  dish.castShadow=true; dish.receiveShadow=true;
+  dishGroup.add(dish);
+  // 碟背加强辐条
+  for(let i=0;i<10;i++){
+    const a=i/10*Math.PI*2;
+    const sp=cyl(0.006,0.006,0.3,6, MAT.polished, Math.cos(a)*0.15, -0.02, Math.sin(a)*0.15);
+    sp.rotation.z=Math.PI/2; sp.rotation.y=-a;
+    dishGroup.add(sp);
+  }
+  // 碟缘环
+  const edge=new THREE.Mesh(new THREE.TorusGeometry(0.3,0.008,6,44), MAT.polished);
+  edge.rotation.x=Math.PI/2; edge.position.y=0.135; dishGroup.add(edge);
+  // 馈源与三脚支架
+  dishGroup.add(cyl(0.022,0.016,0.07,12, MAT.foil, 0,0.33,0));
+  for(let i=0;i<3;i++){
+    const a=i/3*Math.PI*2;
+    const t=cyl(0.005,0.005,0.34,6, MAT.polished, Math.cos(a)*0.1, 0.17, Math.sin(a)*0.1);
+    t.lookAt(0,0.33,0);
+    t.position.set(Math.cos(a)*0.1, 0.17, Math.sin(a)*0.1);
+    dishGroup.add(t);
+  }
+  // 鞭状天线（细长锥，顶端小球）
+  const whip=cyl(0.0035,0.007,1.25,6, MAT.polished, 0.06, 0.0, -0.34);
+  whip.position.set(0.06, 0.62, -0.34);
+  whip.rotation.z=0.1; whip.rotation.x=-0.07;
+  dishRig.add(whip);
+  dishRig.add(cyl(0.02,0.024,0.05,10, MAT.darkSteel, 0.06, 0.02, -0.34));
+  const tip=mk(new THREE.SphereGeometry(0.014,10,8), MAT.warnRed, 0.1, 1.24, -0.42);
+  dishRig.add(tip);
+  // 第二根短鞭天线
+  const whip2=cyl(0.003,0.005,0.62,6, MAT.polished, -0.1, 0.34, -0.2);
+  whip2.rotation.z=-0.22; dishRig.add(whip2);
+}
+
+/* ---------- 9.6 桅杆式相机云台（可摆动） ---------- */
+const mastYaw = new THREE.Group();          // 水平摆动节点
+mastYaw.position.set(0.70, BODY_H/2+0.06, -0.3);
+chassis.add(mastYaw);
+let mastHead = null;
+{
+  // 桅杆基座
+  mastYaw.add(cyl(0.062,0.072,0.08,16, MAT.darkSteel, 0,0.04,0));
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2;
+    const b=new THREE.Mesh(G.boltHead, MAT.polished);
+    b.position.set(Math.cos(a)*0.056, 0.082, Math.sin(a)*0.056);
+    b.scale.setScalar(1.2); b.castShadow=true;
+    mastYaw.add(b);
+  }
+  // 两段桅杆（下粗上细）
+  mastYaw.add(cyl(0.032,0.038,0.5,14, MAT.polished, 0,0.33,0));
+  mastYaw.add(cyl(0.024,0.03,0.42,12, MAT.carbon,  0,0.78,0));
+  // 桅杆上的线缆
+  mastYaw.add(cableRun([[0.04,0.1,0.02],[0.05,0.4,0.03],[0.04,0.72,0.02],[0.02,0.98,0.0]],0.007));
+  // 桅杆中段卡箍
+  for(const y of [0.2,0.46,0.72]){
+    const cl=cyl(0.04,0.04,0.018,12, MAT.darkSteel, 0,y,0);
+    mastYaw.add(cl);
+  }
+
+  // 相机头（俯仰节点）
+  mastHead = new THREE.Group();
+  mastHead.position.y = 1.03;
+  mastYaw.add(mastHead);
+
+  // 云台俯仰轴
+  const pitchAxis=cyl(0.026,0.026,0.2,12, MAT.darkSteel,0,0,0);
+  pitchAxis.rotation.x=Math.PI/2; mastHead.add(pitchAxis);
+
+  // 相机横梁
+  mastHead.add(box(0.1,0.1,0.44, MAT.darkPaint, 0,0.04,0));
+  mastHead.add(box(0.106,0.02,0.45, MAT.polished, 0,0.095,0));
+  // 遮光罩 + 两个立体相机镜头
+  for(const sz of [-1,1]){
+    const z=sz*0.155;
+    // 镜筒
+    const barrel=cyl(0.038,0.042,0.11,18, MAT.polished, 0.07,0.04,z);
+    barrel.rotation.z=Math.PI/2; mastHead.add(barrel);
+    // 遮光罩（略外张）
+    const hood=cyl(0.05,0.04,0.05,18, MAT.darkSteel, 0.145,0.04,z);
+    hood.rotation.z=Math.PI/2; mastHead.add(hood);
+    // 玻璃镜片（有反射质感）
+    const lens=cyl(0.034,0.034,0.012,22, MAT.glass, 0.158,0.04,z);
+    lens.rotation.z=Math.PI/2; mastHead.add(lens);
+    // 镜片中央高光小球
+    const pupil=mk(new THREE.SphereGeometry(0.016,14,10), MAT.glass, 0.162,0.04,z);
+    mastHead.add(pupil);
+    // 镜筒散热环
+    for(let i=0;i<3;i++){
+      const r=cyl(0.044,0.044,0.006,16, MAT.darkSteel, 0.03+i*0.03,0.04,z);
+      r.rotation.z=Math.PI/2; mastHead.add(r);
+    }
+  }
+  // 顶部激光诱导击穿光谱仪小窗
+  mastHead.add(box(0.07,0.05,0.07, MAT.foil, 0.02,0.115,0));
+  const laser=cyl(0.016,0.016,0.04,12, MAT.glass, 0.06,0.115,0);
+  laser.rotation.z=Math.PI/2; mastHead.add(laser);
+  // 相机头警示小块
+  mastHead.add(box(0.012,0.03,0.03, MAT.warnRed, -0.052,0.04,0.1, false));
+}
+
+/* ---------- 9.7 多关节机械臂（末端取样铲 + 钻头） ---------- */
+const armBase = new THREE.Group();
+armBase.position.set(0.88, -BODY_H/2+0.04, 0.46);
+chassis.add(armBase);
+const armJ1 = new THREE.Group();   // 肩部 yaw
+const armJ2 = new THREE.Group();   // 大臂 pitch
+const armJ3 = new THREE.Group();   // 小臂 pitch
+const armJ4 = new THREE.Group();   // 手腕
+{
+  // 肩座
+  armBase.add(cyl(0.056,0.066,0.07,16, MAT.darkSteel,0,0,0));
+  armBase.add(armJ1);
+  armJ1.add(cyl(0.046,0.046,0.08,14, MAT.polished,0,0.06,0));
+  armJ1.add(armJ2);
+  armJ2.position.y=0.1;
+
+  // 大臂（箱型桁架 + 两侧加强）
+  const upperLen=0.52;
+  armJ2.add(cyl(0.034,0.03,upperLen,12, MAT.polished, 0,upperLen/2,0));
+  armJ2.add(box(0.016,upperLen*0.9,0.05, MAT.carbon, 0.034,upperLen/2,0));
+  armJ2.add(cableRun([[0.02,0.02,0.02],[0.03,0.2,0.03],[0.02,0.42,0.02]],0.006));
+  // 大臂作动筒
+  const act1=cyl(0.02,0.02,0.2,10, MAT.darkSteel, -0.04,0.16,0);
+  act1.rotation.z=-0.2; armJ2.add(act1);
+
+  armJ2.add(armJ3);
+  armJ3.position.y=upperLen;
+  // 肘关节
+  const elbow=cyl(0.036,0.036,0.072,14, MAT.darkSteel,0,0,0);
+  elbow.rotation.x=Math.PI/2; armJ3.add(elbow);
+  const elbowCap=cyl(0.026,0.022,0.014,12, MAT.foil,0,0,0.044);
+  elbowCap.rotation.x=Math.PI/2; armJ3.add(elbowCap);
+
+  // 小臂
+  const foreLen=0.42;
+  armJ3.add(cyl(0.026,0.023,foreLen,12, MAT.polished, 0,foreLen/2,0));
+  armJ3.add(box(0.012,foreLen*0.85,0.038, MAT.carbon, 0.027,foreLen/2,0));
+  armJ3.add(cableRun([[0.018,0.02,0.015],[0.024,0.18,0.02],[0.016,0.36,0.014]],0.005));
+
+  armJ3.add(armJ4);
+  armJ4.position.y=foreLen;
+  // 手腕转盘
+  const wrist=cyl(0.03,0.03,0.05,14, MAT.darkSteel,0,0,0);
+  armJ4.add(wrist);
+  // 末端执行器转塔
+  const turret=cyl(0.044,0.044,0.07,16, MAT.polished,0,0.055,0);
+  armJ4.add(turret);
+
+  // --- 取样铲（梯形铲斗）---
+  const scoop=new THREE.Group();
+  scoop.position.set(0.0,0.1,0.05);
+  scoop.rotation.x=0.5;
+  // 铲面
+  const blade=new THREE.Mesh(new THREE.CylinderGeometry(0.058,0.058,0.09,16,1,true,0,Math.PI),
+    new THREE.MeshPhysicalMaterial({ color:0xd2d6dc, metalness:1.0, roughness:0.2,
+      side:THREE.DoubleSide, clearcoat:0.4, envMap:ENV, envMapIntensity:0.9 }));
+  blade.rotation.z=Math.PI/2;
+  blade.castShadow=true;
+  scoop.add(blade);
+  // 铲侧壁
+  for(const sz of [-1,1]){
+    const side=new THREE.Mesh(new THREE.CircleGeometry(0.058,16,0,Math.PI),
+      new THREE.MeshStandardMaterial({color:0xc8ccd2, metalness:1.0, roughness:0.22,
+        side:THREE.DoubleSide, envMap:ENV, envMapIntensity:0.9}));
+    side.position.set(sz*0.045,0,0);
+    side.rotation.y=Math.PI/2;
+    side.castShadow=true;
+    scoop.add(side);
+  }
+  // 铲刃（锐利前缘）
+  scoop.add(box(0.1,0.006,0.02, MAT.polished, 0,-0.056,0));
+  // 铲齿
+  for(let i=0;i<5;i++)
+    scoop.add(box(0.008,0.018,0.012, MAT.polished, -0.04+i*0.02,-0.066,0));
+  armJ4.add(scoop);
+
+  // --- 岩芯钻头（转塔另一侧）---
+  const drill=new THREE.Group();
+  drill.position.set(0.055,0.07,-0.03);
+  drill.rotation.z=-0.42;
+  drill.add(cyl(0.022,0.022,0.09,14, MAT.darkSteel,0,0,0));
+  // 螺旋钻杆：小圆环堆叠成螺旋
+  for(let i=0;i<14;i++){
+    const t=i/14;
+    const f=new THREE.Mesh(new THREE.TorusGeometry(0.014,0.0035,5,14), MAT.polished);
+    f.position.y=-0.05-t*0.12;
+    f.rotation.x=Math.PI/2;
+    f.rotation.z=t*7.0;
+    f.scale.set(1,1,0.5);
+    f.castShadow=true;
+    drill.add(f);
+  }
+  drill.add(cyl(0.001,0.012,0.05,10, MAT.polished, 0,-0.2,0));
+  armJ4.add(drill);
+
+  // --- 显微成像相机（转塔第三面）---
+  const micro=cyl(0.016,0.016,0.05,12, MAT.darkSteel, -0.05,0.06,0.02);
+  micro.rotation.z=0.5; armJ4.add(micro);
+  armJ4.add(mk(new THREE.SphereGeometry(0.012,10,8), MAT.glass, -0.072,0.045,0.02));
+
+  // 初始姿态：收拢在车体前方（巡航姿态）
+  armJ1.rotation.y = -0.45;
+  armJ2.rotation.z = -0.95;
+  armJ3.rotation.z = 1.5;
+  armJ4.rotation.z = 0.5;
+}
+
+/* =========================================================
+   10. 行驶路径 —— 平缓闭合曲线（永不走到地形边缘）
+   ========================================================= */
+const PATH = (function(){
+  const pts=[];
+  const N=14;
+  for(let i=0;i<N;i++){
+    const a=i/N*Math.PI*2;
+    // 半径围绕 PATH_RADIUS 轻微起伏，形成平缓蜿蜒
+    const r=PATH_RADIUS + Math.sin(a*2.0)*7.5 + Math.cos(a*3.0)*4.2;
+    pts.push(new THREE.Vector3(Math.cos(a)*r, 0, Math.sin(a)*r));
+  }
+  const c=new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
+  return c;
+})();
+const PATH_LEN = PATH.getLength();
+
+/* 贴地与姿态求解 */
+const _v1=new THREE.Vector3(), _v2=new THREE.Vector3(), _v3=new THREE.Vector3();
+function groundAt(x,z){ return terrainHeight(x,z); }
+
+let pathT = 0.0;              // 0..1
+let driving = true;
+let speedScale = 1.0;
+let distance = 0;             // 累计里程 m
+const BASE_SPEED = 0.42;      // m/s —— 真实探测车级慢速
+
+const clock = new THREE.Clock();   // 全局时钟（车辙时间戳与主循环共用）
+
+/* =========================================================
+   11. 车辙痕迹 —— 带人字花纹的压痕条带，贴合地形并随时间渐隐
+   ========================================================= */
+/* 车辙贴图：中间压暗的凹槽 + 人字形胎纹 + 两侧挤出的亮边月壤 */
+function trackTexture(w=128,h=256){
+  const c=cvs(w); c.height=h; const g=c.getContext('2d');
+  g.clearRect(0,0,w,h);
+  // 基础压痕：中间深、边缘浅
+  const grd=g.createLinearGradient(0,0,w,0);
+  grd.addColorStop(0.00,'rgba(0,0,0,0)');
+  grd.addColorStop(0.07,'rgba(196,192,183,0.30)');   // 挤出的亮边（窄而含蓄）
+  grd.addColorStop(0.15,'rgba(26,25,23,0.74)');      // 槽壁阴影（深）
+  grd.addColorStop(0.50,'rgba(40,39,36,0.60)');      // 槽底
+  grd.addColorStop(0.85,'rgba(26,25,23,0.74)');
+  grd.addColorStop(0.93,'rgba(196,192,183,0.30)');
+  grd.addColorStop(1.00,'rgba(0,0,0,0)');
+  g.fillStyle=grd; g.fillRect(0,0,w,h);
+  // 人字形胎纹（chevron）：与车轮的 grouser 对应
+  g.lineCap='round';
+  for(let i=0;i<22;i++){
+    const y=(i+0.5)*(h/22);
+    g.strokeStyle='rgba(14,13,12,0.56)'; g.lineWidth=5.0;
+    g.beginPath();
+    g.moveTo(w*0.17, y-6); g.lineTo(w*0.5, y+6); g.lineTo(w*0.83, y-6);
+    g.stroke();
+    // 花纹受光的一侧略亮，增强立体感
+    g.strokeStyle='rgba(178,175,167,0.22)'; g.lineWidth=1.6;
+    g.beginPath();
+    g.moveTo(w*0.17, y-9.5); g.lineTo(w*0.5, y+2.5); g.lineTo(w*0.83, y-9.5);
+    g.stroke();
+  }
+  // 细碎月壤颗粒扰动，避免花纹过于规整
+  for(let i=0;i<900;i++){
+    const x=w*0.12+RND()*w*0.76, y=RND()*h, r=RND()*2.1+0.3;
+    g.fillStyle = RND()<0.58 ? `rgba(18,17,16,${RND()*0.3})`
+                             : `rgba(198,195,187,${RND()*0.17})`;
+    g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+const TRACK_TEX = trackTexture();
+
+const TRACK_MAX = 150;                 // 每侧的条带段数
+const TRACK_W   = 0.34;                // 辙印宽度（略宽于车轮）
+/* 条带网格：沿长度方向细分，使其能贴合地形起伏 */
+const trackGeo = new THREE.PlaneGeometry(TRACK_W, 1, 1, 4);
+trackGeo.rotateX(-Math.PI/2);          // 平铺于地面(XZ)，长度沿 +Z
+/* 车辙材质：不参与光照（月面环境光极低，受光材质会全黑），
+   直接按太阳强度调制"压暗槽 + 挤出亮边"，贴合真实压痕观感 */
+const trackMat = new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false, side:THREE.DoubleSide,
+  defines:{ USE_INSTANCING_COLOR:'' },
+  polygonOffset:true, polygonOffsetFactor:-6, polygonOffsetUnits:-6,
+  uniforms:{
+    uMap:{ value: TRACK_TEX },
+    uLit:{ value: 1.0 }          // 随太阳角度变化的明暗（创建后由 trackLit 同步）
+  },
+  vertexShader:`
+    varying vec2 vUv;
+    varying vec3 vInst;
+    void main(){
+      vUv = uv;
+      #ifdef USE_INSTANCING_COLOR
+        vInst = instanceColor;
+      #else
+        vInst = vec3(1.0);
+      #endif
+      vec4 mv = modelViewMatrix * instanceMatrix * vec4(position,1.0);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader:`
+    uniform sampler2D uMap;
+    uniform float uLit;
+    varying vec2 vUv;
+    varying vec3 vInst;
+    void main(){
+      vec4 t = texture2D(uMap, vUv);
+      if(t.a < 0.02) discard;
+      // 贴图已包含暗槽与亮边；按太阳强度与渐隐系数调制
+      vec3 col = t.rgb * uLit * vInst.r;
+      gl_FragColor = vec4(col, t.a * 0.80 * vInst.r);
+    }`
+});
+trackMatRef = trackMat;
+trackMat.uniforms.uLit.value = trackLit;
+const tracks = new THREE.InstancedMesh(trackGeo, trackMat, TRACK_MAX*2);
+tracks.frustumCulled=false;
+tracks.receiveShadow=true;
+tracks.count=0;
+scene.add(tracks);
+// 逐实例不透明度：用 instanceColor 作为亮度/渐隐通道
+tracks.instanceColor = new THREE.InstancedBufferAttribute(
+  new Float32Array(TRACK_MAX*2*3).fill(1), 3);
+
+let trackPtr=0, trackFilled=0;
+const _tm=new THREE.Matrix4(), _tq=new THREE.Quaternion(), _te=new THREE.Euler();
+const _tpos=new THREE.Vector3(), _tscale=new THREE.Vector3();
+const _trkC=new THREE.Color();
+// 记录每段的落位时间，用于渐隐
+const trackAge=new Float32Array(TRACK_MAX).fill(-1);
+let lastLeft=null, lastRight=null;   // 上一次左右辙印的落点
+
+/* 在 (from -> to) 之间铺一段贴合地形的辙印 */
+function layTrackSegment(slot, side, from, to){
+  const dx=to.x-from.x, dz=to.z-from.z;
+  const len=Math.hypot(dx,dz);
+  if(len<1e-4) return;
+  const mx=(from.x+to.x)*0.5, mz=(from.z+to.z)*0.5;
+  // 取段内若干采样点，让条带整体贴合地形高度
+  let hy=-1e9;
+  for(let k=0;k<=3;k++){
+    const x=from.x+dx*(k/3), z=from.z+dz*(k/3);
+    hy=Math.max(hy, groundAt(x,z));
+  }
+  // 条带长度方向为局部 +Z，需绕 Y 对齐 (dx,dz)
+  const ang=Math.atan2(dx,dz);
+  _te.set(0,ang,0); _tq.setFromEuler(_te);
+  _tpos.set(mx, hy+0.028, mz);
+  _tscale.set(1, 1, len*1.06);          // 轻微重叠，避免段间缝隙
+  _tm.compose(_tpos,_tq,_tscale);
+  tracks.setMatrixAt(slot, _tm);
+}
+
+function layTrack(cx,cz,fx,fz){
+  // 以前进方向的左右法向偏移出两道轮距
+  const fl=Math.hypot(fx,fz)||1;
+  const nx=-fz/fl, nz=fx/fl;             // 左法向
+  const half=0.80;                       // 轮距半宽，与 WHEEL_POS 的 z=±0.80 一致
+  const L={ x:cx+nx*half, z:cz+nz*half };
+  const R={ x:cx-nx*half, z:cz-nz*half };
+  if(lastLeft){
+    layTrackSegment(trackPtr*2,   -1, lastLeft,  L);
+    layTrackSegment(trackPtr*2+1,  1, lastRight, R);
+    trackAge[trackPtr]=clock.elapsedTime;
+    trackPtr=(trackPtr+1)%TRACK_MAX;
+    trackFilled=Math.min(trackFilled+1,TRACK_MAX);
+    tracks.count=trackFilled*2;
+    tracks.instanceMatrix.needsUpdate=true;
+  }
+  lastLeft=L; lastRight=R;
+}
+
+/* 旧辙印缓慢变淡（月面无风，衰减极慢，仅用于循环复用时不突变） */
+function fadeTracks(now){
+  let dirty=false;
+  for(let i=0;i<trackFilled;i++){
+    if(trackAge[i]<0) continue;
+    const age=now-trackAge[i];
+    // 前 60 秒几乎不变，之后缓慢压暗，循环覆盖前已很淡
+    const k=THREE.MathUtils.clamp(1-(age-60)/120, 0.25, 1);
+    _trkC.setScalar(k);
+    tracks.setColorAt(i*2,   _trkC);
+    tracks.setColorAt(i*2+1, _trkC);
+    dirty=true;
+  }
+  if(dirty && tracks.instanceColor) tracks.instanceColor.needsUpdate=true;
+}
+
+/* =========================================================
+   12. 月尘 —— 弹道式抛射（无大气，不飘散）
+   ========================================================= */
+const DUST_N = 180;
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(DUST_N*3);
+const dustVel = new Float32Array(DUST_N*3);
+const dustLife = new Float32Array(DUST_N);
+const dustAlpha = new Float32Array(DUST_N);
+for(let i=0;i<DUST_N;i++){ dustLife[i]=-1; dustPos[i*3+1]=-999; }
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos,3));
+dustGeo.setAttribute('aAlpha',  new THREE.BufferAttribute(dustAlpha,1));
+const dustMat = new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false, blending:THREE.NormalBlending,
+  uniforms:{ uSize:{value: 3.0 * Math.min(devicePixelRatio,2)} },
+  vertexShader:`attribute float aAlpha; varying float vA; uniform float uSize;
+    void main(){ vA=aAlpha; vec4 mv=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize = uSize * (34.0/-mv.z); gl_Position=projectionMatrix*mv; }`,
+  fragmentShader:`varying float vA;
+    void main(){ vec2 d=gl_PointCoord-0.5; float r=length(d);
+      if(r>0.5) discard;
+      float a=vA*(1.0-r*1.6);
+      gl_FragColor=vec4(0.72,0.70,0.66, a); }`
+});
+const dust = new THREE.Points(dustGeo, dustMat);
+dust.frustumCulled=false;
+scene.add(dust);
+let dustPtr=0;
+const MOON_G = 1.62;          // 月球重力 m/s²
+/* dirAngle: 前进方向的世界方位角，约定 cos->x, sin->z（即 atan2(fz,fx)）*/
+function emitDust(x,y,z,dirAngle,count){
+  for(let k=0;k<count;k++){
+    const i=dustPtr; dustPtr=(dustPtr+1)%DUST_N;
+    dustPos[i*3]=x+(RND()-0.5)*0.12;
+    dustPos[i*3+1]=y+0.02;
+    dustPos[i*3+2]=z+(RND()-0.5)*0.12;
+    // 弹道式：向后上方抛出，无空气阻力
+    const back=dirAngle+Math.PI+(RND()-0.5)*0.7;
+    const sp=0.45+RND()*0.85;
+    dustVel[i*3]  =Math.cos(back)*sp;
+    dustVel[i*3+1]=0.5+RND()*1.15;
+    dustVel[i*3+2]=Math.sin(back)*sp;
+    dustLife[i]=0.9+RND()*1.5;
+  }
+}
+function updateDust(dt){
+  let changed=false;
+  for(let i=0;i<DUST_N;i++){
+    if(dustLife[i]<=0){ if(dustAlpha[i]!==0){ dustAlpha[i]=0; changed=true; } continue; }
+    dustLife[i]-=dt;
+    dustVel[i*3+1]-=MOON_G*dt;                 // 只受重力，抛物线落回
+    dustPos[i*3]  +=dustVel[i*3]*dt;
+    dustPos[i*3+1]+=dustVel[i*3+1]*dt;
+    dustPos[i*3+2]+=dustVel[i*3+2]*dt;
+    const gy=groundAt(dustPos[i*3], dustPos[i*3+2]);
+    if(dustPos[i*3+1]<=gy+0.005){               // 落地即停（无悬浮）
+      dustPos[i*3+1]=gy+0.005; dustLife[i]=Math.min(dustLife[i],0.18);
+      dustVel[i*3]*=0.1; dustVel[i*3+1]=0; dustVel[i*3+2]*=0.1;
+    }
+    dustAlpha[i]=THREE.MathUtils.clamp(dustLife[i],0,1)*0.6;
+    changed=true;
+  }
+  if(changed){
+    dustGeo.attributes.position.needsUpdate=true;
+    dustGeo.attributes.aAlpha.needsUpdate=true;
+  }
+}
+
+/* =========================================================
+   13. UI 绑定
+   ========================================================= */
+const $=id=>document.getElementById(id);
+let followMode = true;
+const camOffset = new THREE.Vector3(5.6, 3.0, 5.6);   // 跟随时的相对偏移
+
+$('bFollow').onclick=()=>{ followMode=true;
+  $('bFollow').classList.add('on'); $('bFree').classList.remove('on');
+  $('hMode').textContent='跟随';
+  camOffset.copy(camera.position).sub(controls.target);  // 保留当前视角
+};
+$('bFree').onclick=()=>{ followMode=false;
+  $('bFree').classList.add('on'); $('bFollow').classList.remove('on');
+  $('hMode').textContent='自由'; };
+$('bDrive').onclick=()=>{ driving=!driving;
+  $('bDrive').textContent = driving ? '⏸ 暂停行驶' : '▶ 继续行驶';
+  $('bDrive').classList.toggle('on', driving); };
+$('rSpeed').oninput=e=>{ speedScale=parseFloat(e.target.value);
+  $('vSpeed').textContent=speedScale.toFixed(2)+'×'; };
+$('rSun').oninput=e=>{ const v=parseFloat(e.target.value);
+  updateSun(v); $('vSun').textContent=v.toFixed(0)+'°'; };
+$('rStar').oninput=e=>{ const v=parseFloat(e.target.value)/100;
+  applyStarBrightness(v); $('vStar').textContent=(v*100).toFixed(0)+'%'; };
+
+addEventListener('resize', ()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+});
+
+/* =========================================================
+   14. 主循环
+   ========================================================= */
+let fpsAcc=0, fpsFrames=0, lastFrameMs=performance.now(), lastTrackPos=new THREE.Vector3(1e9,0,1e9);
+const upV=new THREE.Vector3(0,1,0);
+let smPitch=0, smRoll=0;   // 平滑后的俯仰/侧倾（悬挂阻尼）
+let wheelSpin=0;
+
+function placeRover(dt){
+  const p = PATH.getPointAt(pathT);
+  const tangent = PATH.getTangentAt(pathT);
+  // 车身长轴为局部 +X：绕 Y 旋转 θ 时 (1,0,0)->(cosθ,0,-sinθ)
+  // 令其对齐切线 (tx,0,tz) => θ = atan2(-tz, tx)
+  const heading = Math.atan2(-tangent.z, tangent.x);
+
+  // --- 六轮各自采样地形高度 → 车体俯仰/侧倾（悬挂效果）---
+  // 局部->世界（绕 Y 旋转 heading）：
+  //   (1,0,0)->( cos,0,-sin)   (0,0,1)->( sin,0, cos)
+  const cosH=Math.cos(heading), sinH=Math.sin(heading);
+  let sumY=0, frontY=0, rearY=0, leftY=0, rightY=0;
+  for(const w of wheels){
+    // 轮位局部坐标 → 世界坐标（heading 绕 Y）
+    const lx=w.worldX, lz=w.worldZ;
+    const wx=p.x + lx*cosH + lz*sinH;
+    const wz=p.z - lx*sinH + lz*cosH;
+    const gy=groundAt(wx,wz);
+    w.groundY=gy;
+    sumY+=gy;
+    if(lx>0.4) frontY+=gy; else if(lx<-0.4) rearY+=gy;
+    if(lz>0) leftY+=gy; else rightY+=gy;
+  }
+  const avgY=sumY/wheels.length;
+  // 车头在 +X：绕 Z 抬头(俯仰)，绕 X 侧倾
+  const pitchZ =  Math.atan2((frontY-rearY)/2, 1.72);   // 前轮高于后轮 -> 抬头
+  const rollX  = -Math.atan2((leftY-rightY)/3, 1.60);   // 左侧(+Z)高 -> 左倾抬起
+
+  // 平滑（悬挂阻尼）
+  rover.position.x = p.x;
+  rover.position.z = p.z;
+  rover.position.y += (avgY - rover.position.y) * Math.min(1, dt*3.4);
+
+  // 航向严格跟随路径切线（转弯不滞后）；俯仰/侧倾做悬挂阻尼
+  smPitch += (pitchZ - smPitch) * Math.min(1, dt*3.0);
+  smRoll  += (rollX  - smRoll ) * Math.min(1, dt*3.0);
+  rover.quaternion.setFromEuler(new THREE.Euler(smRoll, heading, smPitch, 'YXZ'));
+
+  // --- 各腿独立微动（模拟摇臂行程）---
+  for(const w of wheels){
+    const target = THREE.MathUtils.clamp((w.groundY - avgY)*0.55, -0.1, 0.1);
+    w.leg.position.y += (( -BODY_H/2+0.06 + target) - w.leg.position.y)*Math.min(1,dt*4.5);
+  }
+  // 返回世界前进方向（单位向量），车辙与扬尘直接用向量，避免角度符号歧义
+  return { heading, fx: tangent.x, fz: tangent.z };
+}
+
+function animate(){
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t  = clock.elapsedTime;
+
+  // 行驶推进
+  const vel = driving ? BASE_SPEED*speedScale : 0;
+  if(vel>0){
+    pathT = (pathT + (vel*dt)/PATH_LEN) % 1;
+    distance += vel*dt;
+    wheelSpin += (vel*dt)/WHEEL_R;
+  }
+  const nav = placeRover(dt);
+  const heading = nav.heading;
+
+  // 车轮旋转（转速与前进速度匹配）
+  for(const w of wheels) w.mesh.rotation.z = -wheelSpin;
+
+  // 桅杆缓慢左右摆动
+  mastYaw.rotation.y = Math.sin(t*0.16)*0.62;
+  mastHead.rotation.z = -0.1 + Math.sin(t*0.1)*0.09;
+  // 机械臂极缓慢呼吸式动作
+  armJ1.rotation.y = -0.45 + Math.sin(t*0.08)*0.16;
+  armJ3.rotation.z = 1.5 + Math.sin(t*0.11)*0.1;
+
+  // 车辙 + 尘埃
+  if(vel>0){
+    if(rover.position.distanceTo(lastTrackPos) > 0.30){
+      layTrack(rover.position.x, rover.position.z, nav.fx, nav.fz);
+      lastTrackPos.copy(rover.position);
+      // 后轮位置弹道抛射少量月壤（朝车辆后方）
+      const cosH=Math.cos(heading), sinH=Math.sin(heading);
+      for(const w of wheels){
+        if(w.worldX < -0.4){
+          const wx=rover.position.x + w.worldX*cosH + w.worldZ*sinH;
+          const wz=rover.position.z - w.worldX*sinH + w.worldZ*cosH;
+          emitDust(wx, w.groundY, wz, Math.atan2(nav.fz, nav.fx), 2);
+        }
+      }
+    }
+  }
+  updateDust(dt);
+  fadeTracks(t);
+
+  // 阴影相机跟随探测车，保持高分辨率硬阴影
+  sun.target.position.copy(rover.position);
+  sun.position.copy(rover.position).add(
+    new THREE.Vector3(
+      Math.cos(THREE.MathUtils.degToRad(sunAngle))*28,
+      Math.sin(THREE.MathUtils.degToRad(sunAngle))*46,
+      Math.cos(THREE.MathUtils.degToRad(sunAngle))*35));
+  earthShine.position.copy(earthGroup.position).normalize();
+
+  // 相机跟随
+  if(followMode){
+    controls.target.lerp(
+      _v1.set(rover.position.x, rover.position.y+0.9, rover.position.z),
+      Math.min(1, dt*2.6));
+  }
+  controls.update();
+
+  // 星空随相机平移（无限远）
+  stars.position.copy(camera.position);
+
+  renderer.render(scene, camera);
+
+  // HUD —— 帧率用真实墙钟时间统计，避免被 dt 钳制放大
+  const nowMs=performance.now();
+  fpsAcc += (nowMs - lastFrameMs)/1000; lastFrameMs = nowMs;
+  fpsFrames++;
+  if(fpsAcc>0.5){
+    const f=fpsFrames/fpsAcc;
+    $('hFps').textContent = f<10 ? f.toFixed(1) : f.toFixed(0);
+    $('hDist').textContent=distance.toFixed(1);
+    $('hVel').textContent=vel.toFixed(2);
+    fpsAcc=0; fpsFrames=0;
+  }
+  requestAnimationFrame(animate);
+}
+
+/* =========================================================
+   15. 启动
+   ========================================================= */
+// 初始相机对准探测车
+{
+  const p0=PATH.getPointAt(0);
+  rover.position.set(p0.x, groundAt(p0.x,p0.z), p0.z);
+  controls.target.set(p0.x, rover.position.y+0.9, p0.z);
+  camera.position.set(p0.x+6.4, rover.position.y+3.1, p0.z+6.8);
+  controls.update();
+}
+renderer.compile(scene, camera);
+renderer.render(scene, camera);
+animate();
+
+requestAnimationFrame(()=>{
+  setTimeout(()=>{ document.getElementById('loader').classList.add('hide'); }, 420);
+  setTimeout(()=>{ const l=document.getElementById('loader'); if(l) l.remove(); }, 1600);
+});
+</script>
+</body>
+</html>
